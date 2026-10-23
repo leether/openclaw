@@ -10,6 +10,8 @@ minimumReleaseAgeStrict: true
 
 # Trusted Codex runtimes are outside the dependency cooldown.
 minimumReleaseAgeExclude:
+  # GHSA-27r3-jxmh-p828; remove after 2026-10-29T11:39:38.614Z.
+  - "body-parser@2.4.0"
   # Security fix for GHSA-68fv-2mgg-jv7q (released 2026-09-30); remove after 2026-10-07T14:08:09.382Z.
   - "source-map-js@1.2.2"
   - "@openai/codex"
@@ -52,6 +54,7 @@ overrides:
   "@aws-sdk/xml-builder": 3.972.40
   "@hono/node-server": 2.1.1
   axios: 1.20.0
+  body-parser: 2.4.0
   fast-uri: 4.2.1
   follow-redirects: 1.16.1
   # Vite security patch: keep its new bundler path at the minimum compatible patch.
@@ -75,7 +78,7 @@ overrides:
   minimatch: 10.2.6
   path-to-regexp: 8.4.2
   proxy-addr: 2.0.8
-  qs: 6.16.0
+  qs: 6.16.1
   node-domexception: "npm:@nolyfill/domexception@1.0.28"
   typebox: 1.3.34
   tar: 7.5.22
@@ -87,6 +90,10 @@ overrides:
   yauzl: 3.4.0
   protobufjs: 8.8.0
   uuid: 14.0.2
+  # These v4 consumers retain the vulnerable patch; do not override v3 peers.
+  "@agentclientprotocol/claude-agent-acp@0.79.0>zod": 4.6.6
+  "@anthropic-ai/claude-agent-sdk@0.3.274>zod": 4.6.6
+  "@github/copilot-sdk@1.0.14>zod": 4.6.6
 
 allowBuilds:
   onnxruntime-node: false
