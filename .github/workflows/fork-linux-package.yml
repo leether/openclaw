@@ -1,0 +1,79 @@
+name: Fork Linux Package
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-linux-package-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    if: github.repository == 'leether/openclaw' && (github.event_name != 'pull_request' || (!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CI: "true"
+      NODE_OPTIONS: --max-old-space-size=6144
+      QUALIFIED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      FORK_ARTIFACT_DIR: ${{ github.workspace }}/.artifacts/fork-linux-package
+      FORK_RUNTIME_DIR: ${{ runner.temp }}/fork-linux-runtime
+      FORK_NODE_ROOT: ${{ runner.temp }}/fork-node-runtimes
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.QUALIFIED_SHA }}
+          persist-credentials: false
+      - name: Verify official Node inputs
+        shell: bash
+        run: bash .github/fork-linux/verify-node.sh
+      - name: Set up the repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.22.1"
+          install-deps: "false"
+          install-bun: "true"
+          cache-mode: "off"
+          semantic-checks: "true"
+      - name: Build and qualify the complete Linux package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$QUALIFIED_SHA"
+          cmp "$(command -v node)" "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node"
+          systemd-run --user --scope --collect --quiet --expand-environment=no \
+            --property=MemoryMax=10G --property=MemorySwapMax=0 \
+            --property=TasksMax=512 --property=OOMPolicy=kill \
+            --property=RuntimeMaxSec=6600 -- \
+            bash .github/fork-linux/qualify-package.sh
+      - name: Upload qualified package and offline runtime
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fork-linux-package-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
+          path: ${{ env.FORK_ARTIFACT_DIR }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve bounded synthetic diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fork-linux-diagnostics-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.FORK_ARTIFACT_DIR }}/source-inputs.sha256
+            ${{ env.FORK_ARTIFACT_DIR }}/native-*.json
+            ${{ env.FORK_ARTIFACT_DIR }}/installed-http-proof.json
+            ${{ runner.temp }}/fork-http-synthetic/report.json
+            ${{ runner.temp }}/fork-http-synthetic/process.log
+            ${{ runner.temp }}/fork-http-synthetic/gateway.log
+          if-no-files-found: ignore
+          retention-days: 7
