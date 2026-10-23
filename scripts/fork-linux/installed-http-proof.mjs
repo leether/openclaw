@@ -39,7 +39,7 @@ const bounded = async (promise, ms, name) => {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(Error(name + " wall deadline")), ms);
+        timer = setTimeout(() => reject(new Error(name + " wall deadline")), ms);
       }),
     ]);
   } finally {
@@ -64,11 +64,15 @@ async function command(args) {
   const timer = setTimeout(stop, 25000);
   child.stdout.on("data", (b) => {
     stdout += b;
-    if (stdout.length > 2 * 1024 * 1024) stop();
+    if (stdout.length > 2 * 1024 * 1024) {
+      stop();
+    }
   });
   child.stderr.on("data", (b) => {
     stderr += b;
-    if (stderr.length > 2 * 1024 * 1024) stop();
+    if (stderr.length > 2 * 1024 * 1024) {
+      stop();
+    }
   });
   const [code] = await once(child, "close");
   clearTimeout(timer);
@@ -287,11 +291,12 @@ async function status() {
     "lifecycleWrites",
     "totalActive",
   ];
-  for (const name of names)
+  for (const name of names) {
     assert.ok(
       Number.isInteger(value.executionDrain.counts[name]) && value.executionDrain.counts[name] >= 0,
       name,
     );
+  }
   return value;
 }
 function post(input, budget, signal = AbortSignal.timeout(30000), auth = true) {
@@ -307,29 +312,38 @@ function post(input, budget, signal = AbortSignal.timeout(30000), auth = true) {
   });
 }
 const hardTimer = setTimeout(() => {
-  for (const child of children) child.kill("SIGKILL");
+  for (const child of children) {
+    child.kill("SIGKILL");
+  }
   mock.closeAllConnections();
 }, 240000);
 try {
   report.cliVersion = (await command(["--version"])).trim();
   gateway = own(["gateway", "run"]);
-  for (const stream of [gateway.stdout, gateway.stderr])
+  for (const stream of [gateway.stdout, gateway.stderr]) {
     stream.on("data", (b) => {
       gatewayLog += b;
-      if (gatewayLog.length > 8 * 1024 * 1024) gateway.kill("SIGKILL");
+      if (gatewayLog.length > 8 * 1024 * 1024) {
+        gateway.kill("SIGKILL");
+      }
     });
+  }
   await bounded(
     (async () => {
       for (;;) {
-        if (gateway.exitCode !== null || gateway.signalCode !== null)
-          throw Error("Gateway exited: " + gatewayLog.slice(-3000));
+        if (gateway.exitCode !== null || gateway.signalCode !== null) {
+          throw new Error("Gateway exited: " + gatewayLog.slice(-3000));
+        }
         try {
           if (
             (await fetch("http://127.0.0.1:18789/readyz", { signal: AbortSignal.timeout(500) })).ok
-          )
+          ) {
             return;
+          }
         } catch {}
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        });
       }
     })(),
     80000,
@@ -366,7 +380,10 @@ try {
     .then((r) => r.text())
     .then(
       () => ({ returned: true }),
-      (error) => ({ aborted: controller.signal.aborted, error: error.name }),
+      (/** @type {unknown} */ error) => ({
+        aborted: controller.signal.aborted,
+        error: error instanceof Error ? error.name : String(error),
+      }),
     );
   await bounded(toolStarted, 30000, "tool admission");
   const active = await status();
@@ -390,7 +407,9 @@ try {
           report.finalDrain = value.executionDrain;
           return;
         }
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        });
       }
     })(),
     35000,
@@ -413,7 +432,9 @@ try {
   }
   clearTimeout(hardTimer);
   mock.closeAllConnections();
-  await new Promise((resolve) => mock.close(resolve));
+  await new Promise((resolve) => {
+    mock.close(resolve);
+  });
   report.modelCalls = modelCalls;
   report.toolCalls = toolCalls;
   report.finishedAt = new Date().toISOString();

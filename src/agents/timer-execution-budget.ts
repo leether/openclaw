@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 
 export const TIMER_BUDGET_PROTOCOL = "timer-budget-v1";
@@ -46,18 +47,19 @@ export function getTimerRequestCount() {
 }
 
 /** The authenticated HTTP owner accepts a bounded dialect, never loose prompt hints. */
-export function parseTimerExecutionBudgetHeader(raw: string | string[] | undefined) {
+export function parseTimerExecutionBudgetHeader(
+  raw: string | string[] | undefined,
+): TimerExecutionBudgetSpec | undefined {
   if (raw === undefined) {
     return undefined;
   }
   if (typeof raw !== "string" || raw.length > 1024) {
     throw new Error("Invalid timer budget header");
   }
-  const value: unknown = JSON.parse(raw);
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  const record: unknown = JSON.parse(raw);
+  if (!isRecord(record)) {
     throw new Error("Invalid timer budget header");
   }
-  const record = value as Record<string, unknown>;
   const keys = new Set([
     "version",
     "remainingMs",
@@ -83,7 +85,16 @@ export function parseTimerExecutionBudgetHeader(raw: string | string[] | undefin
   ) {
     throw new Error("Invalid timer budget or Gateway owner changed");
   }
-  return record as TimerExecutionBudgetSpec;
+  return {
+    version: TIMER_BUDGET_PROTOCOL,
+    remainingMs: record.remainingMs,
+    answerReserveMs: record.answerReserveMs,
+    maxSearchCalls: record.maxSearchCalls,
+    searchCallTimeoutMs: record.searchCallTimeoutMs,
+    ...(typeof record.expectedOwnerEpoch === "string"
+      ? { expectedOwnerEpoch: record.expectedOwnerEpoch }
+      : {}),
+  };
 }
 
 export function createTimerExecutionBudget(
@@ -133,15 +144,10 @@ function assertTimerOwnerRuntimeSupported(owner: TimerOwner | undefined, runtime
 }
 
 function normalizeBaiduFreshness(toolName: string, params: unknown): unknown {
-  if (
-    !new Set(["baidu_search", "baidu_web_search"]).has(toolName) ||
-    !params ||
-    typeof params !== "object" ||
-    Array.isArray(params)
-  ) {
+  if (!new Set(["baidu_search", "baidu_web_search"]).has(toolName) || !isRecord(params)) {
     return params;
   }
-  const record = params as Record<string, unknown>;
+  const record = params;
   if (record.freshness === undefined) {
     return params;
   }

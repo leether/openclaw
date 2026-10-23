@@ -23,6 +23,7 @@ jobs:
     env:
       CI: "true"
       NODE_OPTIONS: --max-old-space-size=6144
+      OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB: "6144"
       QUALIFIED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       FORK_ARTIFACT_DIR: ${{ github.workspace }}/.artifacts/fork-linux-package
     steps:
@@ -37,7 +38,7 @@ jobs:
           printf 'FORK_NODE_ROOT=%s/fork-node-runtimes\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Verify official Node inputs
         shell: bash
-        run: bash .github/fork-linux/verify-node.sh
+        run: bash scripts/fork-linux/verify-node.sh
       - name: Set up the repository toolchain
         uses: ./.github/actions/setup-node-env
         with:
@@ -52,11 +53,15 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$QUALIFIED_SHA"
           cmp "$(command -v node)" "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node"
-          systemd-run --user --scope --collect --quiet --expand-environment=no \
+          unit="fork-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.scope"
+          python3 scripts/fork-linux/scope-diagnostics.py "$unit" "$FORK_ARTIFACT_DIR/resource-scope.json" &
+          monitor_pid=$!
+          trap 'kill -TERM "$monitor_pid" 2>/dev/null || true; wait "$monitor_pid" || true' EXIT
+          systemd-run --user --scope --unit="$unit" --collect --quiet --expand-environment=no \
             --property=MemoryMax=10G --property=MemorySwapMax=0 \
             --property=TasksMax=512 --property=OOMPolicy=kill \
             --property=RuntimeMaxSec=6600 -- \
-            bash .github/fork-linux/qualify-package.sh
+            bash scripts/fork-linux/qualify-package.sh
       - name: Upload qualified package and offline runtime
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -73,14 +78,18 @@ jobs:
           name: fork-linux-diagnostics-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
           path: |
             ${{ env.FORK_ARTIFACT_DIR }}/source-inputs.sha256
+            ${{ env.FORK_ARTIFACT_DIR }}/resource-scope.json
+            ${{ env.FORK_ARTIFACT_DIR }}/installed-npm-audit.json
+            ${{ env.FORK_ARTIFACT_DIR }}/installed-package-lock.json
+            ${{ env.FORK_ARTIFACT_DIR }}/installed-dependencies.json
             ${{ env.FORK_ARTIFACT_DIR }}/native-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-http-proof.json
+            ${{ env.FORK_ARTIFACT_DIR }}/installed-http-proof-*.json
             ${{ env.FORK_ARTIFACT_DIR }}/restored-*.json
-            ${{ runner.temp }}/fork-http-synthetic/report.json
-            ${{ runner.temp }}/fork-http-synthetic/process.log
-            ${{ runner.temp }}/fork-http-synthetic/gateway.log
-            ${{ runner.temp }}/fork-restored-http-synthetic/report.json
-            ${{ runner.temp }}/fork-restored-http-synthetic/process.log
-            ${{ runner.temp }}/fork-restored-http-synthetic/gateway.log
+            ${{ runner.temp }}/fork-http-synthetic-*/report.json
+            ${{ runner.temp }}/fork-http-synthetic-*/process.log
+            ${{ runner.temp }}/fork-http-synthetic-*/gateway.log
+            ${{ runner.temp }}/fork-restored-http-synthetic-*/report.json
+            ${{ runner.temp }}/fork-restored-http-synthetic-*/process.log
+            ${{ runner.temp }}/fork-restored-http-synthetic-*/gateway.log
           if-no-files-found: ignore
           retention-days: 90

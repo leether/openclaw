@@ -25,7 +25,9 @@ function nativeFile(relative) {
   // npm may nest a package under OpenClaw when versions cannot be hoisted.
   for (const root of [modules, path.join(modules, "openclaw", "node_modules")]) {
     const candidate = path.join(root, relative);
-    if (fs.existsSync(candidate)) return candidate;
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
   throw new Error(`Missing required native module: ${relative}`);
 }
@@ -103,13 +105,13 @@ const report = {
         assert.equal(received, true);
         resolve();
       } catch (error) {
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   });
   report.passed = true;
   console.log(JSON.stringify(report));
-})().catch((error) => {
+})().catch((/** @type {unknown} */ error) => {
   console.error(error);
   process.exitCode = 1;
 });
