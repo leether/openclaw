@@ -54,7 +54,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$QUALIFIED_SHA"
           cmp "$(command -v node)" "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node"
           unit="fork-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.scope"
-          python3 scripts/fork-linux/scope-diagnostics.py "$unit" "$FORK_ARTIFACT_DIR/resource-scope.json" &
+          python3 scripts/fork-linux/scope-diagnostics.py "$unit" "$RUNNER_TEMP/fork-linux-resource-scope.json" &
           monitor_pid=$!
           trap 'kill -TERM "$monitor_pid" 2>/dev/null || true; wait "$monitor_pid" || true' EXIT
           systemd-run --user --scope --unit="$unit" --collect --quiet --expand-environment=no \
@@ -78,7 +78,7 @@ jobs:
           name: fork-linux-diagnostics-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
           path: |
             ${{ env.FORK_ARTIFACT_DIR }}/source-inputs.sha256
-            ${{ env.FORK_ARTIFACT_DIR }}/resource-scope.json
+            ${{ runner.temp }}/fork-linux-resource-scope.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-npm-audit.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-package-lock.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-dependencies.json

@@ -32,7 +32,8 @@ and verified in a durable archive before expiry. CI storage alone is not a
 permanent rollback archive.
 
 A monitor outside the bounded build scope retains the latest cgroup counters
-and their sampling time. A missing or earlier counter sample is not evidence
+and their sampling time in the separate diagnostic artifact, outside the
+checksummed qualification package. A missing or earlier counter sample is not evidence
 that a later SIGKILL was an OOM kill.
 
 For an isolated offline restore, verify `SHA256SUMS`, extract the runtime archive
