@@ -120,6 +120,8 @@ export const createActiveWorkSnapshot = (
   blockers: GatewayActiveWorkSnapshot["blockers"] = [],
 ): GatewayActiveWorkSnapshot => {
   const resolvedCounts = {
+    actualToolExecutions: 0,
+    timerRequests: 0,
     queueSize: 0,
     pendingReplies: 0,
     embeddedRuns: 0,

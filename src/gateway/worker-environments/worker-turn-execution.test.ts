@@ -14,6 +14,7 @@ import {
   makeAgentAssistantMessage,
   makeAgentUserMessage,
 } from "../../agents/test-helpers/agent-message-fixtures.js";
+import { createTimerExecutionBudget } from "../../agents/timer-execution-budget.js";
 import {
   CORE_WORKER_LAUNCH_TOOL_NAMES,
   resolveCoreToolExecutionLocation,
@@ -61,6 +62,33 @@ describe("worker turn execution", () => {
   beforeEach(setupWorkerTurnLauncherTest);
   afterEach(cleanupWorkerTurnLauncherTest);
   afterEach(resetGlobalHookRunner);
+
+  it("rejects a budgeted remote placement before credential acquisition or launch", async () => {
+    await seedActivePlacement();
+    const input = turn("timer-budget-worker");
+    const environments = { ...unusedEnvironments(), get: attachedEnvironment };
+    const provider = createWorkerSessionTurnPlacementProvider({ placements, environments });
+    const runLocal = vi.fn();
+    const budget = createTimerExecutionBudget(
+      {
+        version: "timer-budget-v1",
+        remainingMs: 480000,
+        answerReserveMs: 120000,
+        maxSearchCalls: 4,
+        searchCallTimeoutMs: 45000,
+      },
+      new AbortController(),
+      vi.fn(),
+    );
+    await expect(
+      budget.run(() =>
+        provider.executeTurn({ ...sessionTarget, runId: input.runId }, input, runLocal),
+      ),
+    ).rejects.toThrow("does not support runtime worker");
+    expect(environments.acquireTurnCredential).not.toHaveBeenCalled();
+    expect(environments.startTunnel).not.toHaveBeenCalled();
+    expect(runLocal).not.toHaveBeenCalled();
+  });
 
   it.each([
     { recorderOwned: false, throws: false },

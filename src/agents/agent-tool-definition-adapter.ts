@@ -39,6 +39,7 @@ import {
   getInternalToolExecutionPreparer,
 } from "./runtime/internal-hooks.js";
 import type { ToolDefinition } from "./sessions/index.js";
+import { captureTimerToolExecution } from "./timer-execution-budget.js";
 import { readToolOperatorHint } from "./tool-operator-hint.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 import { jsonResult, payloadTextResult, ToolInputError } from "./tools/common.js";
@@ -345,6 +346,7 @@ export function toToolDefinitions(
     const name = tool.name || "tool";
     const toolOwnerPluginId = getPluginToolMeta(tool)?.pluginId;
     const normalizedName = normalizeToolPolicyName(name);
+    const timerExecution = captureTimerToolExecution();
     const beforeHookWrapped = isToolWrappedWithBeforeToolCallHook(tool);
     const sourcePreparer = getInternalToolExecutionPreparer(tool);
     const definition = {
@@ -433,7 +435,13 @@ export function toToolDefinitions(
               decision?.start?.();
               recordAdjustedParamsForToolCall(toolCallId, executeParams, hookContext?.runId);
             }
-            return await tool.execute(toolCallId, executeParams, signal, onUpdate);
+            if (beforeHookWrapped) {
+              return await tool.execute(toolCallId, executeParams, signal, onUpdate);
+            }
+            executeParams = timerExecution.normalizeParams(name, executeParams);
+            return await timerExecution.execute(name, signal, (toolSignal) =>
+              tool.execute(toolCallId, executeParams, toolSignal, onUpdate),
+            );
           },
         });
       },
@@ -483,6 +491,11 @@ export function toToolDefinitions(
           };
         }
       };
+      // Unwrapped custom preparers do not expose a replaceable execution signal.
+      // Refuse budgeted use until that owner can enforce cancellation and admission.
+      timerExecution.assertRuntimeSupported(
+        beforeHookWrapped ? "openclaw" : "unwrapped-tool-preparer",
+      );
       let prepared: Awaited<ReturnType<typeof sourcePreparer>>;
       try {
         prepared = await sourcePreparer({
@@ -503,7 +516,11 @@ export function toToolDefinitions(
         args: ready.args,
         execute: (onImplementationStart) => {
           signal?.throwIfAborted();
-          return settle(() => ready.execute(onImplementationStart));
+          return settle(() =>
+            beforeHookWrapped
+              ? ready.execute(onImplementationStart)
+              : timerExecution.execute(name, signal, () => ready.execute(onImplementationStart)),
+          );
         },
         dispose: ready.dispose,
       };

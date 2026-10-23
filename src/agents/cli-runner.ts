@@ -80,6 +80,7 @@ import {
   runAgentHarnessLlmOutputHook,
 } from "./harness/lifecycle-hook-helpers.js";
 import { resolveReplyExpectation } from "./reply-completion.js";
+import { assertTimerBudgetRuntimeSupported } from "./timer-execution-budget.js";
 
 const log = createSubsystemLogger("agents/cli-runner");
 
@@ -113,6 +114,7 @@ export async function isCliBindingFlushed(
 }
 
 export function runCliAgent(paramsInput: RunCliAgentParams): Promise<EmbeddedAgentRunResult> {
+  assertTimerBudgetRuntimeSupported("cli");
   const lifecycleGeneration =
     paramsInput.lifecycleGeneration ?? captureAgentRunLifecycleGeneration(paramsInput.runId);
   const params = {

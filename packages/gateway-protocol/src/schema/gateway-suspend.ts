@@ -28,6 +28,8 @@ export type GatewaySuspension = Static<typeof GatewaySuspensionSchema>;
 
 export const GatewaySuspendBlockerSchema = closedObject({
   kind: Type.Union([
+    Type.Literal("tool-execution"),
+    Type.Literal("timer-request"),
     Type.Literal("queue"),
     Type.Literal("reply"),
     Type.Literal("embedded-run"),
