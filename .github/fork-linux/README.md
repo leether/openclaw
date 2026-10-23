@@ -19,7 +19,11 @@ The success artifact includes `qualification.json`, `SHA256SUMS`, the canonical
 package, the complete runtime installation, dependency locks, and Node input
 signature evidence. Synthetic diagnostic artifacts can also be uploaded after a
 failure; their existence does not mean qualification passed. No deployment is
-performed by this workflow.
+performed by this workflow. The runtime archive is also extracted to a fresh
+prefix, compared entry-by-entry with the archive, and exercised by native and
+installed HTTP proofs. Artifacts expire after 90 days; they must be transferred
+and verified in a durable archive before expiry. CI storage alone is not a
+permanent rollback archive.
 
 For an isolated offline restore, verify `SHA256SUMS`, extract the runtime archive
 into a new prefix, and extract the desired verified Node archive into a separate

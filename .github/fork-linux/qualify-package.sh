@@ -56,5 +56,20 @@ offline 600 env QUALIFICATION_NETWORK_ISOLATED=1 "$FORK_NODE_ROOT/node-v24.22.1-
 # Preserve the resolved Linux dependencies for offline restoration; an npm tgz
 # alone is explicitly not claimed to contain a complete runtime installation.
 "${guard[@]}" 900 tar -C "$FORK_RUNTIME_DIR" -czf "$FORK_ARTIFACT_DIR/openclaw-linux-x64-runtime.tar.gz" .
+# Restore the archive to a fresh prefix and exercise that prefix, not the
+# original installation. tar --compare checks all extracted entries and bytes.
+restore="$RUNNER_TEMP/fork-linux-restored-runtime"
+mkdir "$restore"
+offline 900 tar -C "$restore" -xzf "$FORK_ARTIFACT_DIR/openclaw-linux-x64-runtime.tar.gz"
+offline 900 tar -C "$restore" -dzf "$FORK_ARTIFACT_DIR/openclaw-linux-x64-runtime.tar.gz"
+offline 120 "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node" \
+  "$source_root/.github/fork-linux/native-smoke.cjs" \
+  "$restore" "$RUNNER_TEMP/fork-restored-native-synthetic" initial \
+  > "$FORK_ARTIFACT_DIR/restored-native.json"
+offline 600 env QUALIFICATION_NETWORK_ISOLATED=1 "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node" \
+  "$source_root/.github/fork-linux/installed-http-proof.mjs" \
+  "$restore/node_modules/openclaw" \
+  "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node" "$RUNNER_TEMP/fork-restored-http-synthetic" \
+  > "$FORK_ARTIFACT_DIR/restored-http-proof.json"
 "${guard[@]}" 120 node "$source_root/.github/fork-linux/package-manifest.mjs"
 (cd "$FORK_ARTIFACT_DIR" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)

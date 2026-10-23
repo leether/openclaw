@@ -30,6 +30,16 @@ for (const [index, entry] of native[0].native.entries()) {
 }
 const http = await read("installed-http-proof.json");
 assert.equal(http.passed, true);
+const restoredNative = await read("restored-native.json");
+assert.equal(restoredNative.passed, true);
+assert.equal(restoredNative.node, "v24.22.1");
+assert.equal(restoredNative.native.length, 7);
+for (const [index, entry] of native[1].native.entries()) {
+  assert.equal(restoredNative.native[index].name, entry.name);
+  assert.equal(restoredNative.native[index].sha256, entry.sha256);
+}
+const restoredHttp = await read("restored-http-proof.json");
+assert.equal(restoredHttp.passed, true);
 for (const assertion of [
   "unauthenticated-rejected",
   "stale-owner-rejected",
@@ -37,9 +47,12 @@ for (const assertion of [
   "installed-http-ack-answer-240000",
   "cancelled-http-retains-actual-tool-drain",
   "actual-tool-settlement-releases-drain",
-])
+]) {
   assert.ok(http.assertions.includes(assertion), assertion);
+  assert.ok(restoredHttp.assertions.includes(assertion), `restored: ${assertion}`);
+}
 assert.equal(http.finalDrain.idle, true);
+assert.equal(restoredHttp.finalDrain.idle, true);
 const files = {};
 for (const name of [
   "openclaw-candidate.tgz",
@@ -82,6 +95,14 @@ const report = {
   ],
   nativePhases: native.map(({ node, mode, sqliteRows }) => ({ node, mode, sqliteRows })),
   httpAssertions: http.assertions,
+  restoration: {
+    freshPrefix: true,
+    completeArchiveCompared: true,
+    nativePassed: true,
+    httpAssertions: restoredHttp.assertions,
+  },
+  retention:
+    "GitHub Actions artifacts expire after 90 days; transfer and verify in a separately approved durable archive before expiry",
   files,
 };
 await fs.writeFile(

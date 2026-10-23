@@ -224,7 +224,7 @@ const config = {
     entries: { "timer-fixture": { enabled: true } },
   },
   tools: { allow: ["timer_fixture_tool"] },
-  logging: { file: path.join(root, "gateway.log") },
+  logging: { file: path.join(root, "gateway.log"), maxFileBytes: 8 * 1024 * 1024 },
 };
 await fs.writeFile(path.join(root, "state", "openclaw.json"), JSON.stringify(config));
 const env = {
