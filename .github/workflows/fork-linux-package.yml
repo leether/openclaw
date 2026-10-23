@@ -25,13 +25,16 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=6144
       QUALIFIED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       FORK_ARTIFACT_DIR: ${{ github.workspace }}/.artifacts/fork-linux-package
-      FORK_RUNTIME_DIR: ${{ runner.temp }}/fork-linux-runtime
-      FORK_NODE_ROOT: ${{ runner.temp }}/fork-node-runtimes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.QUALIFIED_SHA }}
           persist-credentials: false
+      - name: Set isolated runtime paths
+        shell: bash
+        run: |
+          printf 'FORK_RUNTIME_DIR=%s/fork-linux-runtime\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'FORK_NODE_ROOT=%s/fork-node-runtimes\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Verify official Node inputs
         shell: bash
         run: bash .github/fork-linux/verify-node.sh
