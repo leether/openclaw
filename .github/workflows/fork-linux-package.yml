@@ -24,6 +24,9 @@ jobs:
       CI: "true"
       NODE_OPTIONS: --max-old-space-size=6144
       OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB: "6144"
+      GOMAXPROCS: "2"
+      GOGC: "30"
+      GOMEMLIMIT: 3GiB
       QUALIFIED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       FORK_ARTIFACT_DIR: ${{ github.workspace }}/.artifacts/fork-linux-package
     steps:

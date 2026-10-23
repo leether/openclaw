@@ -5,7 +5,10 @@ Linux x64 package qualification without changing upstream CI or review gates.
 
 The source build uses the checked-in frozen pnpm lock. The compiler uses the
 existing 6 GiB tsdown heap setting inside a 10 GiB memory scope; declaration
-concurrency still follows the repository's capacity checks. A standalone npm install
+concurrency still follows the repository's capacity checks. Native Go compilers
+use the existing CI settings `GOMAXPROCS=2`, `GOGC=30`, and `GOMEMLIMIT=3GiB`;
+the Go soft memory target does not replace the scope's hard limit or omit any
+declaration stage. A standalone npm install
 is resolved once into a retained npm lock, installed with `npm ci`, and archived
 with its production dependencies. The npm tarball alone is not an offline
 runtime. Both verified Node runtime archives are included separately.
