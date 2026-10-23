@@ -9,6 +9,7 @@ import { WORKER_PROTOCOL_FEATURES } from "../packages/gateway-protocol/src/schem
 import { createWorkerBundleProducer } from "../src/gateway/worker-environments/bundle.ts";
 import { getFreePort } from "../src/test-utils/ports.ts";
 import { assertPrebuiltUiE2eRuntime } from "../test/vitest/vitest.ui-e2e-prebuilt.global-setup.ts";
+import { desktopAptProof } from "./lib/desktop-apt-proof.mts";
 import { desktopReadinessLines } from "./lib/desktop-readiness-proof.mts";
 import {
   type DesktopProofSourceStatus,
@@ -183,6 +184,12 @@ async function run(
             await writeFile(path.join(privateRoot, `${label}.log`), Buffer.concat(log), {
               mode: 0o600,
             });
+          }
+          if (label === "apt-update" || label === "apt-install") {
+            await writeFile(
+              path.join(output, `${label}.json`),
+              `${JSON.stringify(desktopAptProof(label, Buffer.concat(log), bytes), null, 2)}\n`,
+            );
           }
           await saveReceipt();
         },
