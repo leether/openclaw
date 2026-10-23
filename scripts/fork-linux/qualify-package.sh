@@ -46,11 +46,12 @@ for phase in initial candidate rollback; do
   offline 120 "$runtime" "$source_root/scripts/fork-linux/native-smoke.cjs" \
     "$FORK_RUNTIME_DIR" "$state" "$phase" > "$FORK_ARTIFACT_DIR/native-$phase.json"
 done
-offline 120 "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node" \
-  "$FORK_RUNTIME_DIR/node_modules/openclaw/openclaw.mjs" --version \
-  > "$FORK_ARTIFACT_DIR/installed-version.txt"
 for version in 24.22.1 24.22.0; do
   runtime="$FORK_NODE_ROOT/node-v$version-linux-x64/bin/node"
+  offline 240 env QUALIFICATION_NETWORK_ISOLATED=1 "$runtime" \
+    "$source_root/scripts/fork-linux/installed-npm-proof.mjs" \
+    "$FORK_RUNTIME_DIR/node_modules/openclaw" "$runtime" "$RUNNER_TEMP/fork-npm-synthetic-$version" \
+    > "$FORK_ARTIFACT_DIR/installed-npm-proof-$version.json"
   offline 600 env QUALIFICATION_NETWORK_ISOLATED=1 "$runtime" \
     "$source_root/scripts/fork-linux/installed-http-proof.mjs" \
     "$FORK_RUNTIME_DIR/node_modules/openclaw" "$runtime" "$RUNNER_TEMP/fork-http-synthetic-$version" \
@@ -72,6 +73,10 @@ offline 120 "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node" \
   > "$FORK_ARTIFACT_DIR/restored-native.json"
 for version in 24.22.1 24.22.0; do
   runtime="$FORK_NODE_ROOT/node-v$version-linux-x64/bin/node"
+  offline 240 env QUALIFICATION_NETWORK_ISOLATED=1 "$runtime" \
+    "$source_root/scripts/fork-linux/installed-npm-proof.mjs" \
+    "$restore/node_modules/openclaw" "$runtime" "$RUNNER_TEMP/fork-restored-npm-synthetic-$version" \
+    > "$FORK_ARTIFACT_DIR/restored-npm-proof-$version.json"
   offline 600 env QUALIFICATION_NETWORK_ISOLATED=1 "$runtime" \
     "$source_root/scripts/fork-linux/installed-http-proof.mjs" \
     "$restore/node_modules/openclaw" "$runtime" "$RUNNER_TEMP/fork-restored-http-synthetic-$version" \

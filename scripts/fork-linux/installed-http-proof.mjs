@@ -7,6 +7,7 @@ import { once } from "node:events";
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
+import { assertReadyInstall, qualifyMetadataCli } from "./installed-cli-proof.mjs";
 const [packageRoot, runtime, root] = process.argv.slice(2).map((p) => path.resolve(p));
 assert.ok(packageRoot && runtime && root, "three absolute paths required");
 assert.equal(process.env.QUALIFICATION_NETWORK_ISOLATED, "1", "caller must deny external network");
@@ -24,6 +25,7 @@ const report = {
   passed: false,
 };
 const children = new Set();
+const metadataHolds = new Map();
 let gateway,
   gatewayLog = "",
   toolRelease,
@@ -80,8 +82,21 @@ async function command(args) {
   assert.equal(code, 0, stderr.slice(-3000));
   return stdout;
 }
-const mock = http.createServer(async (req, res) => {
+async function handleMock(req, res) {
   try {
+    const url = new URL(req.url, "http://127.0.0.1");
+    if (url.pathname === "/metadata-hold" || url.pathname === "/metadata-settled") {
+      const hold = metadataHolds.get(url.searchParams.get("nonce"));
+      assert.ok(hold, "known synthetic metadata request");
+      if (url.pathname === "/metadata-hold") {
+        hold.release = () => res.end("released");
+        hold.admit();
+      } else {
+        res.end("settled");
+        hold.settle();
+      }
+      return;
+    }
     if (req.url === "/tool") {
       toolCalls++;
       assert.equal(toolCalls, 1);
@@ -154,6 +169,11 @@ const mock = http.createServer(async (req, res) => {
   } catch (error) {
     res.writeHead(500).end(JSON.stringify({ error: String(error) }));
   }
+}
+const mock = http.createServer((req, res) => {
+  void handleMock(req, res).catch((/** @type {unknown} */ error) => {
+    res.destroy(error instanceof Error ? error : new Error(String(error)));
+  });
 });
 mock.listen(0, "127.0.0.1");
 await once(mock, "listening");
@@ -173,13 +193,24 @@ await fs.writeFile(
   path.join(pluginDir, "openclaw.plugin.json"),
   JSON.stringify({
     id: "timer-fixture",
+    activation: { onStartup: true },
     configSchema: { type: "object", additionalProperties: false },
     contracts: { tools: ["timer_fixture_tool"] },
   }),
 );
 await fs.writeFile(
   path.join(pluginDir, "index.mjs"),
-  `export default function(api) { api.registerTool({ name:'timer_fixture_tool', description:'Synthetic qualification tool', parameters:{type:'object',properties:{},additionalProperties:false}, async execute() { const r=await fetch(${JSON.stringify(provider + "/tool")}); const text=await r.text(); return {content:[{type:'text',text}]}; } }); }`,
+  `export default function(api) {
+    api.registerTool({ name:'timer_fixture_tool', description:'Synthetic qualification tool', parameters:{type:'object',properties:{},additionalProperties:false}, async execute() { const r=await fetch(${JSON.stringify(provider + "/tool")}); const text=await r.text(); return {content:[{type:'text',text}]}; } });
+    api.registerGatewayMethod('timer-fixture.metadataHold', async ({params,respond}) => {
+      const nonce=encodeURIComponent(params.nonce);
+      const held=await fetch(${JSON.stringify(provider + "/metadata-hold?nonce=")}+nonce);
+      await held.text();
+      respond(true,{ok:true,nonce:params.nonce});
+      const settled=await fetch(${JSON.stringify(provider + "/metadata-settled?nonce=")}+nonce);
+      await settled.text();
+    }, {scope:'operator.read',profileAccess:'independent'});
+  }`,
 );
 const config = {
   gateway: {
@@ -239,6 +270,9 @@ const env = {
   OPENCLAW_GATEWAY_URL: "ws://127.0.0.1:18789",
   OPENCLAW_GATEWAY_TOKEN: token,
   OPENCLAW_NO_RESPAWN: "1",
+  OPENCLAW_COMPILE_CACHE_DISABLED_RESPAWNED: "1",
+  OPENCLAW_NODE_UPDATE_RESPAWNED: "1",
+  OPENCLAW_CLI_CONTAINER_BYPASS: "1",
   OPENCLAW_NO_AUTO_UPDATE: "1",
   OPENCLAW_SKIP_CHANNELS: "1",
   OPENCLAW_SKIP_CRON: "1",
@@ -318,6 +352,7 @@ const hardTimer = setTimeout(() => {
   mock.closeAllConnections();
 }, 240000);
 try {
+  report.installMarkers = await assertReadyInstall(packageRoot);
   report.cliVersion = (await command(["--version"])).trim();
   gateway = own(["gateway", "run"]);
   for (const stream of [gateway.stdout, gateway.stderr]) {
@@ -349,6 +384,7 @@ try {
     80000,
     "startup",
   );
+  report.metadataCli = await qualifyMetadataCli({ own, metadataHolds });
   const before = await status();
   report.ownerEpoch = before.timerBudget.ownerEpoch;
   const budget = (remainingMs) => ({

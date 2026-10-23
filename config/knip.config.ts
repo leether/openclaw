@@ -31,6 +31,11 @@ const repositoryScriptEntries = [
   "scripts/ci-build-manifest.mjs!",
   // CI security-fast runs this from its trusted harness checkout.
   "scripts/ci-production-audit.mjs!",
+  // The fork Linux qualification shell executes these exact helpers by path.
+  "scripts/fork-linux/installed-http-proof.mjs!",
+  "scripts/fork-linux/native-smoke.cjs!",
+  "scripts/fork-linux/package-manifest.mjs!",
+  "scripts/fork-linux/installed-npm-proof.mjs!",
   // tsdown builds this private macOS app worker protocol entry by path.
   "src/node-host/mac-worker-entry.ts!",
   // CI imports this selector from its trusted harness inside an inline Node script.

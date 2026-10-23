@@ -59,6 +59,43 @@ for (const version of ["24.22.1", "24.22.0"]) {
       assert.ok(proof.assertions.includes(assertion), `${prefix} ${version}: ${assertion}`);
     }
     assert.equal(proof.finalDrain.idle, true);
+    assert.deepEqual(proof.installMarkers.absent, [
+      ".openclaw-lifecycle-pending",
+      "dist/openclaw-install-guard",
+    ]);
+    assert.equal(proof.metadataCli.passed, true);
+    const [success, cancelled, timeout] = proof.metadataCli.operations;
+    assert.equal(proof.metadataCli.operations.length, 3);
+    assert.equal(success.reason, "success");
+    assert.equal(success.code, 0);
+    assert.ok(success.elapsedMs < 5000);
+    for (const [operation, reason] of [
+      [cancelled, "cancelled"],
+      [timeout, "timeout"],
+    ]) {
+      assert.equal(operation.reason, reason);
+      assert.equal(operation.signal, "SIGKILL");
+      assert.ok(operation.admissionMs < 5000);
+      assert.ok(operation.cleanupElapsedMs < 2000);
+      assert.equal(operation.handlerSettled, true);
+      assert.equal(operation.handlerDrain.idle, true);
+      assert.equal(operation.handlerDrain.counts.totalActive, 0);
+      assert.deepEqual(operation.childrenAtAdmission, []);
+    }
+    for (const operation of [success, cancelled, timeout]) {
+      assert.equal(operation.pidExited, true);
+      assert.equal(operation.pipesClosed, true);
+      assert.equal(operation.parentDeadlineMs, 5000);
+    }
+    const npm = await read(`${prefix}-npm-proof-${version}.json`);
+    assert.equal(npm.passed, true);
+    assert.equal(npm.node, `v${version}`);
+    assert.equal(npm.version, "12.2.1");
+    assert.deepEqual(
+      npm.phases.map((phase) => phase.version),
+      ["1.0.0", "1.0.1", "1.0.0"],
+    );
+    assert.ok(npm.phases.every((phase) => phase.installScriptSuppressed));
     reports[version] = proof.assertions;
   }
 }
@@ -106,6 +143,8 @@ const report = {
     "Synthetic local provider and tool only",
     "480/240-second values verify the budget protocol with fast mock answers, not elapsed eight/four-minute execution",
     "Does not prove production performance, live configuration or first migration safety",
+    "Metadata CLI proof invokes the actual installed entry with a matching startup environment, not an external adapter",
+    "http-cache-semantics advisory CVE-2026-93748 is disputed by its maintainer; a passing audit is not proof of its alleged semantic fix",
   ],
   nativePhases: native.map(({ node, mode, sqliteRows }) => ({ node, mode, sqliteRows })),
   httpByRuntime,

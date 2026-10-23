@@ -23,6 +23,22 @@ rejection, 480/240-second protocol acceptance, and HTTP cancellation while a
 real plugin tool is still executing. These tests use a synthetic provider;
 they do not wait for 480 seconds or measure production performance.
 
+Before the first OpenClaw CLI invocation, the installed-package proof rejects
+pending lifecycle and install-guard markers. A fresh metadata CLI process must
+finish within its parent's five-second deadline. Two read-only synthetic Gateway
+handlers establish admission before cancellation or deadline expiry; the proof
+joins the owned PID and pipes, then separately releases and joins each handler.
+The startup environment prevents respawn, compile-cache relocation, automatic
+Node selection and container forwarding. This proves the actual installed CLI
+with that environment, not an external caller's adapter or a cold OS page cache.
+
+On both installed and restored paths, the bundled npm 12.2.1 CLI also packs and
+installs synthetic local packages, updates them, and returns to the first version
+with install scripts explicitly disabled. These operations run without external
+network access. The production install's script policy is not relaxed. The
+http-cache-semantics CVE-2026-93748 remains disputed by its maintainer: an audit
+passing for version 4.3.0 is not an independent semantic-fix claim.
+
 The success artifact includes `qualification.json`, `SHA256SUMS`, the canonical
 package, the complete runtime installation, dependency locks, and Node input
 signature evidence. Synthetic diagnostic artifacts can also be uploaded after a
