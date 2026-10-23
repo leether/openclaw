@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fixtureSourceCallId } from "./installed-model-fixture.mjs";
 
 const artifactRoot = process.env.FORK_ARTIFACT_DIR;
 assert.ok(artifactRoot && process.env.QUALIFIED_SHA);
@@ -59,6 +60,31 @@ for (const version of ["24.22.1", "24.22.0"]) {
       assert.ok(proof.assertions.includes(assertion), `${prefix} ${version}: ${assertion}`);
     }
     assert.equal(proof.finalDrain.idle, true);
+    assert.equal(proof.toolCalls, 1);
+    assert.equal(proof.sourceToolCallId, fixtureSourceCallId);
+    assert.ok(proof.cancellationProof.elapsedMs < 5000);
+    assert.deepEqual(
+      { ...proof.cancellationProof, elapsedMs: 0 },
+      {
+        clientAborted: true,
+        elapsedMs: 0,
+        timerRequests: 0,
+        actualToolExecutions: 1,
+        idle: false,
+        sourceResponseOpen: true,
+        sourceSocketOpen: true,
+      },
+    );
+    assert.deepEqual(proof.toolExecutionCounts, {
+      admitted: 2,
+      afterCancellation: 1,
+      settled: 0,
+    });
+    assert.deepEqual(proof.modelProtocol, [
+      { action: "answer" },
+      { action: "answer" },
+      { action: "call" },
+    ]);
     assert.deepEqual(proof.installMarkers.absent, [
       ".openclaw-lifecycle-pending",
       "dist/openclaw-install-guard",

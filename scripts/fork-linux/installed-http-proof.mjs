@@ -8,6 +8,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { assertReadyInstall, qualifyMetadataCli } from "./installed-cli-proof.mjs";
+import { fixtureSourceCallId, planInstalledModelResponse } from "./installed-model-fixture.mjs";
 const [packageRoot, runtime, root] = process.argv.slice(2).map((p) => path.resolve(p));
 assert.ok(packageRoot && runtime && root, "three absolute paths required");
 assert.equal(process.env.QUALIFICATION_NETWORK_ISOLATED, "1", "caller must deny external network");
@@ -22,12 +23,14 @@ const report = {
   syntheticOnly: true,
   startedAt: new Date().toISOString(),
   assertions: [],
+  modelProtocol: [],
   passed: false,
 };
 const children = new Set();
 const metadataHolds = new Map();
 let gateway,
   gatewayLog = "",
+  toolResponse,
   toolRelease,
   toolStartResolve,
   toolCalls = 0,
@@ -35,11 +38,17 @@ let gateway,
 const toolStarted = new Promise((resolve) => {
   toolStartResolve = resolve;
 });
-const bounded = async (promise, ms, name) => {
+let failMock;
+const mockFailure = new Promise((_, reject) => {
+  failMock = reject;
+});
+void mockFailure.catch(() => {});
+const bounded = async (promise, ms, name, observeMock = true) => {
   let timer;
   try {
     return await Promise.race([
       promise,
+      ...(observeMock ? [mockFailure] : []),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error(name + " wall deadline")), ms);
       }),
@@ -54,7 +63,8 @@ function own(args) {
   child.on("close", () => children.delete(child));
   return child;
 }
-async function command(args) {
+async function command(args, signal) {
+  signal?.throwIfAborted();
   const child = own(args);
   let stdout = "",
     stderr = "",
@@ -64,6 +74,10 @@ async function command(args) {
     child.kill("SIGKILL");
   };
   const timer = setTimeout(stop, 25000);
+  signal?.addEventListener("abort", stop, { once: true });
+  if (signal?.aborted) {
+    stop();
+  }
   child.stdout.on("data", (b) => {
     stdout += b;
     if (stdout.length > 2 * 1024 * 1024) {
@@ -78,6 +92,7 @@ async function command(args) {
   });
   const [code] = await once(child, "close");
   clearTimeout(timer);
+  signal?.removeEventListener("abort", stop);
   assert.equal(stopped, false, "CLI limit");
   assert.equal(code, 0, stderr.slice(-3000));
   return stdout;
@@ -97,9 +112,12 @@ async function handleMock(req, res) {
       }
       return;
     }
-    if (req.url === "/tool") {
+    if (url.pathname === "/tool") {
+      assert.equal(url.searchParams.get("callId"), fixtureSourceCallId);
       toolCalls++;
       assert.equal(toolCalls, 1);
+      report.sourceToolCallId = fixtureSourceCallId;
+      toolResponse = res;
       toolRelease = () => res.end("synthetic tool completed");
       toolStartResolve();
       return;
@@ -115,28 +133,15 @@ async function handleMock(req, res) {
     }
     const input = JSON.parse(raw);
     modelCalls++;
-    const needsTool =
-      JSON.stringify(input.messages).includes("PROVE_ACTUAL_TOOL") &&
-      !input.messages.some((m) => m.role === "tool");
-    const message = needsTool
-      ? {
-          role: "assistant",
-          content: null,
-          tool_calls: [
-            {
-              id: "synthetic-tool-call",
-              type: "function",
-              function: { name: "timer_fixture_tool", arguments: "{}" },
-            },
-          ],
-        }
-      : { role: "assistant", content: "SYNTHETIC_TIMER_OK" };
-    const reason = needsTool ? "tool_calls" : "stop";
+    const { message, reason, action } = planInstalledModelResponse(input);
+    assert.ok(report.modelProtocol.length < 8, "bounded synthetic model rounds");
+    report.modelProtocol.push({ action });
     if (input.stream) {
       res.writeHead(200, { "content-type": "text/event-stream" });
-      const delta = needsTool
-        ? { role: "assistant", tool_calls: [{ index: 0, ...message.tool_calls[0] }] }
-        : message;
+      const delta =
+        reason === "tool_calls"
+          ? { role: "assistant", tool_calls: [{ index: 0, ...message.tool_calls[0] }] }
+          : message;
       for (const choice of [
         { index: 0, delta, finish_reason: null },
         { index: 0, delta: {}, finish_reason: reason },
@@ -167,6 +172,7 @@ async function handleMock(req, res) {
       );
     }
   } catch (error) {
+    failMock(error);
     res.writeHead(500).end(JSON.stringify({ error: String(error) }));
   }
 }
@@ -201,7 +207,7 @@ await fs.writeFile(
 await fs.writeFile(
   path.join(pluginDir, "index.mjs"),
   `export default function(api) {
-    api.registerTool({ name:'timer_fixture_tool', description:'Synthetic qualification tool', parameters:{type:'object',properties:{},additionalProperties:false}, async execute() { const r=await fetch(${JSON.stringify(provider + "/tool")}); const text=await r.text(); return {content:[{type:'text',text}]}; } });
+    api.registerTool({ name:'timer_fixture_tool', description:'Synthetic qualification tool', parameters:{type:'object',properties:{},additionalProperties:false}, async execute(callId) { const r=await fetch(${JSON.stringify(provider + "/tool?callId=")}+encodeURIComponent(callId)); const text=await r.text(); return {content:[{type:'text',text}],details:{status:'completed',fixture:'timer-source-v1'}}; } });
     api.registerGatewayMethod('timer-fixture.metadataHold', async ({params,respond}) => {
       const nonce=encodeURIComponent(params.nonce);
       const held=await fetch(${JSON.stringify(provider + "/metadata-hold?nonce=")}+nonce);
@@ -286,19 +292,22 @@ const env = {
   TMPDIR: "/tmp",
   PATH: path.dirname(runtime) + ":/usr/bin:/bin",
 };
-async function status() {
+async function status(signal) {
   const value = JSON.parse(
-    await command([
-      "--no-color",
-      "gateway",
-      "call",
-      "status",
-      "--timeout",
-      "15000",
-      "--params",
-      '{"includeChannelSummary":false}',
-      "--json",
-    ]),
+    await command(
+      [
+        "--no-color",
+        "gateway",
+        "call",
+        "status",
+        "--timeout",
+        "15000",
+        "--params",
+        '{"includeChannelSummary":false}',
+        "--json",
+      ],
+      signal,
+    ),
   );
   assert.equal(value.timerBudget?.protocol, "timer-budget-v1");
   assert.equal(value.executionDrain?.protocol, "tool-drain-v1");
@@ -421,16 +430,61 @@ try {
         error: error instanceof Error ? error.name : String(error),
       }),
     );
-  await bounded(toolStarted, 30000, "tool admission");
+  await bounded(
+    Promise.race([
+      toolStarted,
+      pending.then(() => {
+        throw new Error("HTTP settled before the actual tool was admitted");
+      }),
+    ]),
+    30000,
+    "tool admission",
+  );
   const active = await status();
-  assert.equal(active.executionDrain.counts.actualToolExecutions, 1);
+  // The advertised dispatcher and its one hidden source each own a promise.
+  assert.equal(active.executionDrain.counts.actualToolExecutions, 2);
+  assert.equal(toolCalls, 1);
   assert.equal(active.executionDrain.idle, false);
+  const cancellationStarted = performance.now();
+  const cancellationSignal = AbortSignal.timeout(5000);
   controller.abort();
-  const cancelled = await bounded(pending, 5000, "HTTP cancellation");
-  assert.equal(cancelled.aborted, true);
-  const afterCancel = await status();
-  assert.equal(afterCancel.executionDrain.counts.actualToolExecutions, 1);
-  assert.equal(afterCancel.executionDrain.idle, false);
+  await bounded(
+    (async () => {
+      const cancelled = await pending;
+      assert.equal(cancelled.aborted, true);
+      for (;;) {
+        cancellationSignal.throwIfAborted();
+        const { executionDrain } = await status(cancellationSignal);
+        if (
+          executionDrain.counts.timerRequests === 0 &&
+          executionDrain.counts.actualToolExecutions === 1 &&
+          !executionDrain.idle
+        ) {
+          assert.equal(toolResponse.writableEnded, false);
+          assert.equal(toolResponse.destroyed, false);
+          assert.ok(toolResponse.socket && !toolResponse.socket.destroyed);
+          const elapsedMs = performance.now() - cancellationStarted;
+          assert.ok(elapsedMs < 5000, "client and server cancellation share five seconds");
+          report.cancellationProof = {
+            clientAborted: true,
+            elapsedMs,
+            timerRequests: 0,
+            actualToolExecutions: 1,
+            idle: false,
+            sourceResponseOpen: true,
+            sourceSocketOpen: true,
+          };
+          return;
+        }
+        await new Promise((resolve) => {
+          setTimeout(resolve, 100);
+        });
+      }
+    })(),
+    5000,
+    "HTTP and server cancellation",
+  );
+  report.toolExecutionCounts = { admitted: 2, afterCancellation: 1 };
   report.assertions.push("cancelled-http-retains-actual-tool-drain");
   toolRelease();
   await bounded(
@@ -441,6 +495,7 @@ try {
           assert.equal(value.executionDrain.counts.actualToolExecutions, 0);
           assert.equal(value.executionDrain.counts.timerRequests, 0);
           report.finalDrain = value.executionDrain;
+          report.toolExecutionCounts.settled = 0;
           return;
         }
         await new Promise((resolve) => {
@@ -452,6 +507,12 @@ try {
     "tool settlement drain",
   );
   report.assertions.push("actual-tool-settlement-releases-drain");
+  assert.equal(toolCalls, 1, "one actual source execution, without retry");
+  assert.deepEqual(report.modelProtocol, [
+    { action: "answer" },
+    { action: "answer" },
+    { action: "call" },
+  ]);
   report.passed = true;
 } catch (error) {
   report.error = error.stack;
@@ -461,9 +522,9 @@ try {
   for (const child of children) {
     const closed = once(child, "close");
     child.kill("SIGTERM");
-    await bounded(closed, 10000, "shutdown").catch(async () => {
+    await bounded(closed, 10000, "shutdown", false).catch(async () => {
       child.kill("SIGKILL");
-      await bounded(closed, 5000, "kill cleanup");
+      await bounded(closed, 5000, "kill cleanup", false);
     });
   }
   clearTimeout(hardTimer);

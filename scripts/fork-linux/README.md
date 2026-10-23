@@ -22,6 +22,15 @@ only. They check authentication, stale owner
 rejection, 480/240-second protocol acceptance, and HTTP cancellation while a
 real plugin tool is still executing. These tests use a synthetic provider;
 they do not wait for 480 seconds or measure production performance.
+The model follows the advertised `tool_call` schema and checks the exact
+invocation and catalog identity before accepting a structured success. With the
+default compact catalog, drain counts are exactly two at admission (dispatcher
+and target), one after cancellation (the target's unfinished source promise),
+and zero after settlement. The target executes only once; tool errors cannot be
+turned into a successful synthetic answer.
+The existing five-second cancellation deadline covers both the HTTP client's
+rejection and the server's zero request / one source state. The source response
+and socket must remain open until that state is observed.
 
 Before the first OpenClaw CLI invocation, the installed-package proof rejects
 pending lifecycle and install-guard markers. A fresh metadata CLI process must

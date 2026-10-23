@@ -24,6 +24,12 @@ import {
   parseTimerExecutionBudgetHeader,
   type TimerExecutionBudgetSpec,
 } from "./timer-execution-budget.js";
+import {
+  applyToolSearchCatalog,
+  clearToolSearchCatalog,
+  createToolSearchCatalogRef,
+  createToolSearchTools,
+} from "./tool-search.js";
 
 const spec: TimerExecutionBudgetSpec = {
   version: "timer-budget-v1",
@@ -96,6 +102,55 @@ describe("authenticated timer budget contract", () => {
 });
 
 describe("real tool execution boundary", () => {
+  it("counts the catalog dispatcher and target separately, retaining only the target after cancellation", async () => {
+    const deferred = createDeferredCore<typeof result>();
+    const started = createDeferredCore();
+    const caller = new AbortController();
+    const catalogRef = createToolSearchCatalogRef();
+    let sourceCalls = 0;
+    const pending = budget({}, caller).run(async () => {
+      const controls = createToolSearchTools({ catalogRef });
+      const source = tool("timer_fixture_tool", async () => {
+        sourceCalls += 1;
+        started.resolve();
+        return await deferred.promise;
+      });
+      const compacted = applyToolSearchCatalog({ tools: [...controls, source], catalogRef });
+      const control = toToolDefinitions(compacted.tools).find(
+        (entry) => entry.name === "tool_call",
+      );
+      if (!control) {
+        throw new Error("Expected the actual catalog dispatcher");
+      }
+      return await control.execute(
+        "catalog-cancel",
+        { id: source.name, args: {} },
+        caller.signal,
+        undefined,
+        extensionContext,
+      );
+    });
+    const settled = Promise.allSettled([pending]);
+    try {
+      await started.promise;
+      expect(sourceCalls).toBe(1);
+      expect(getActualToolExecutionCount()).toBe(2);
+      caller.abort(new Error("synthetic caller cancellation"));
+      await settled;
+      // The owner's abort race can settle before the dispatcher's own finally.
+      await expect.poll(getActualToolExecutionCount).toBe(1);
+      expect(getTimerRequestCount()).toBe(0);
+      deferred.resolve(result);
+      await expect.poll(getActualToolExecutionCount).toBe(0);
+      expect(sourceCalls).toBe(1);
+    } finally {
+      deferred.resolve(result);
+      caller.abort();
+      await settled;
+      await expect.poll(getActualToolExecutionCount).toBe(0);
+      clearToolSearchCatalog({ catalogRef });
+    }
+  });
   it("rejects the real CLI entry before lifecycle, credentials or backend preparation", async () => {
     await budget().run(async () => {
       expect(() => runCliAgent({} as Parameters<typeof runCliAgent>[0])).toThrow(
