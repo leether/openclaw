@@ -157,8 +157,8 @@ export function installControlUiE2ePageDiagnosticRing(page: Page): ControlUiE2eD
     events.push(event);
     if (events.length > CONTROL_UI_E2E_DIAGNOSTIC_RING_LIMIT) {
       const removed = events.splice(0, events.length - CONTROL_UI_E2E_DIAGNOSTIC_RING_LIMIT);
-      for (const event of removed) {
-        if (event.source === "network") {
+      for (const removedEvent of removed) {
+        if (removedEvent.source === "network") {
           network.evicted();
         }
       }
@@ -521,7 +521,7 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
         | null
         | undefined;
       const sidebar = readinessShell?.navigationSidebar;
-      const readiness = windowState.__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__;
+      const readiness = windowState["__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__"];
       const boolOrNull = (value: unknown) => (typeof value === "boolean" ? value : null);
       const numberOrNull = (value: unknown) =>
         typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;

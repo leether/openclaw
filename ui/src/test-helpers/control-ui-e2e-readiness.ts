@@ -12,10 +12,10 @@ const rosterReadinessAttempts = new WeakMap<Page, number>();
 /** Selected descriptors and cached rows can render before the authoritative roster. */
 export async function waitForControlUiInitialRoster(
   page: Page,
-  navigationId: number | null = null,
+  originatingNavigationId: number | null = null,
 ): Promise<void> {
-  const attempt = (rosterReadinessAttempts.get(page) ?? 0) + 1;
-  rosterReadinessAttempts.set(page, attempt);
+  const nextAttempt = (rosterReadinessAttempts.get(page) ?? 0) + 1;
+  rosterReadinessAttempts.set(page, nextAttempt);
   try {
     const ready = await page.waitForFunction(
       ({ attempt, navigationId }) => {
@@ -43,13 +43,13 @@ export async function waitForControlUiInitialRoster(
               };
             };
             const now = performance.now();
-            const previous = target.__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__;
+            const previous = target["__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__"];
             // A timed-out Promise can finish after a newer same-document wait starts.
             if (previous && previous.attempt > attempt) {
               return;
             }
             const current = previous?.attempt === attempt ? previous : undefined;
-            target.__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__ = {
+            target["__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__"] = {
               attempt,
               navigationId,
               phase,
@@ -203,7 +203,7 @@ export async function waitForControlUiInitialRoster(
           return true;
         })();
       },
-      { attempt, navigationId },
+      { attempt: nextAttempt, navigationId: originatingNavigationId },
       { timeout: controlUiE2eWaitTimeoutMs },
     );
     await ready.dispose();

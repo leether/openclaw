@@ -120,7 +120,7 @@ export function createControlUiNetworkDiagnostics(options: {
       }
       const rawType = entry?.resourceType ?? request.resourceType();
       const resourceType = resourceTypes.find((type) => type === rawType) ?? "other";
-      const bucket = counts.find((entry) => entry.resourceType === resourceType)!;
+      const bucket = counts.find((bucketEntry) => bucketEntry.resourceType === resourceType)!;
       bucket[stage] = increment(bucket[stage]);
       const atMs = now();
       let statusClass: StatusClass | null = null;
@@ -212,7 +212,13 @@ export function createControlUiNetworkDiagnostics(options: {
       active: true,
       retiredReason: null,
       capturedAtMs,
-      countsByType: counts.map((entry) => ({ ...entry })),
+      countsByType: counts.map((entry) => ({
+        resourceType: entry.resourceType,
+        request: entry.request,
+        response: entry.response,
+        finished: entry.finished,
+        failed: entry.failed,
+      })),
       pendingTotal: complete ? pending.size : null,
       pendingLowerBound: pending.size,
       lastObservedPendingLowerBound: null,
@@ -225,7 +231,13 @@ export function createControlUiNetworkDiagnostics(options: {
       recentOmitted,
       projectionTruncated: false,
       pendingOmitted: Math.max(0, pending.size - 16),
-      pending: [...pending.values()].slice(0, 16).map((entry) => ({ ...entry })),
+      pending: [...pending.values()].slice(0, 16).map((entry) => ({
+        requestId: entry.requestId,
+        resourceType: entry.resourceType,
+        startedAtMs: entry.startedAtMs,
+        responseAtMs: entry.responseAtMs,
+        statusClass: entry.statusClass,
+      })),
       recent,
     };
     return boundProjection(result);

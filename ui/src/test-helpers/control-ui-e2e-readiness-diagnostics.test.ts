@@ -45,14 +45,29 @@ type PublicFailure = {
 function observedUpdate() {
   const entered = createDeferredCore();
   const settled = createDeferredCore<boolean>();
-  // A thenable reports actual await admission; merely reading updateComplete does not.
-  const promise: PromiseLike<boolean> = {
-    then(onfulfilled, onrejected) {
-      entered.resolve();
-      return settled.promise.then(onfulfilled, onrejected);
+  return {
+    entered: entered.promise,
+    install(
+      host: { updateComplete: PromiseLike<boolean> },
+      phase: "app-update" | "shell-update" | "sidebar-update",
+    ) {
+      // Lit exposes a Promise through this getter. Ignore the sidebar's earlier
+      // predicate read; the test also checks that the wait stays pending until release.
+      Object.defineProperty(host, "updateComplete", {
+        configurable: true,
+        get() {
+          const trace = Reflect.get(window, "__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__") as
+            | { phase?: unknown }
+            | undefined;
+          if (trace?.phase === phase) {
+            entered.resolve();
+          }
+          return settled.promise;
+        },
+      });
     },
+    release: () => settled.resolve(true),
   };
-  return { entered: entered.promise, promise, release: () => settled.resolve(true) };
 }
 
 function readinessDom() {
@@ -191,11 +206,13 @@ describe("initial roster diagnostic ownership", () => {
     const first = observedUpdate();
     const second = observedUpdate();
     const owner = fixture();
-    dom.app.updateComplete = first.promise;
+    first.install(dom.app, "app-update");
     const waitA = waitForControlUiInitialRoster(owner.page, 41);
-    dom.app.updateComplete = second.promise;
+    second.install(dom.app, "app-update");
     const waitB = waitForControlUiInitialRoster(owner.page, 42);
-    const joined = Promise.allSettled([waitA, waitB]);
+    const secondSettled = vi.fn();
+    const secondSettlement = waitB.then(secondSettled, secondSettled);
+    const joined = Promise.allSettled([waitA, waitB, secondSettlement]);
     try {
       await withinTest(
         Promise.all([
@@ -220,6 +237,7 @@ describe("initial roster diagnostic ownership", () => {
         phase: "app-update",
         reason: null,
       });
+      expect(secondSettled).not.toHaveBeenCalled();
       second.release();
       await waitB;
       expect((await owner.capture()).value.browser.sessionsReadiness.wait).toMatchObject({
@@ -249,9 +267,9 @@ describe("initial roster diagnostic ownership", () => {
         frameCallback = undefined;
       };
       if (phase === "shell-update") {
-        dom.shell.updateComplete = held.promise;
+        held.install(dom.shell, "shell-update");
       } else if (phase === "sidebar-update") {
-        dom.sidebar.updateComplete = held.promise;
+        held.install(dom.sidebar, "sidebar-update");
       } else {
         vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
           frameCallback = callback;
@@ -264,7 +282,9 @@ describe("initial roster diagnostic ownership", () => {
       }
       const owner = fixture();
       const waiting = waitForControlUiInitialRoster(owner.page, 7);
-      const joined = Promise.allSettled([waiting]);
+      const settled = vi.fn();
+      const settlement = waiting.then(settled, settled);
+      const joined = Promise.allSettled([waiting, settlement]);
       try {
         await withinTest(
           awaitGateBeforeSettlement(
@@ -278,6 +298,7 @@ describe("initial roster diagnostic ownership", () => {
           navigationId: 7,
           phase,
         });
+        expect(settled).not.toHaveBeenCalled();
         held.release();
         releaseFrame();
         await waiting;
