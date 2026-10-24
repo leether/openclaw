@@ -19,12 +19,17 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  packageJsonForNpmLock,
+  readNpmLockOverrides,
+} from "../scripts/generate-npm-package-lock.mts";
+import {
   generatePluginNpmPackageLockWithRetry,
   resolveAugmentedPluginNpmPackageJson,
   resolveAugmentedPluginNpmManifest,
   runPluginNpmCiWithRetry,
   withAugmentedPluginNpmManifestForPackage,
 } from "../scripts/lib/plugin-npm-package-manifest.mts";
+import type { PluginPackageJson } from "../scripts/lib/plugin-npm-runtime-build.mts";
 import { resolveNpmRunner } from "../scripts/npm-runner.mts";
 import { hasChannelPackageState } from "../src/channels/plugins/package-state-probes.js";
 import type { PluginManifest } from "../src/plugins/manifest-types.js";
@@ -501,12 +506,79 @@ function writePatchedRuntimeFixture(bundling = "default") {
 }
 
 describe("plugin npm package manifest staging", () => {
-  it("keeps msteams runtime dependencies registry-installed", () => {
-    const packageJson = JSON.parse(
-      readFileSync(join(process.cwd(), "extensions", "msteams", "package.json"), "utf8"),
-    ) as { openclaw?: { release?: { bundleRuntimeDependencies?: boolean } } };
+  it("preserves the reviewed Teams authentication pins in its independent runtime bundle", () => {
+    const sourceDir = join(process.cwd(), "extensions", "msteams");
+    const sourcePath = join(sourceDir, "package.json");
+    const sourceText = readFileSync(sourcePath, "utf8");
+    const packageJson = JSON.parse(sourceText) as PluginPackageJson;
+    expect(packageJson.openclaw?.release?.bundleRuntimeDependencies).toBe(true);
+    expect(packageJson.dependencies).toMatchObject({
+      "@azure/identity": "4.13.3",
+      "@microsoft/teams.apps": "2.1.0",
+    });
 
-    expect(packageJson.openclaw?.release?.bundleRuntimeDependencies).toBe(false);
+    // Exercise the real workspace/lock conversion, not a fixture containing its expected result.
+    const overrides = readNpmLockOverrides(packageJson, sourceDir);
+    const authenticationParents = ["@azure/identity@4.13.3", "@microsoft/teams.apps@2.1.0"];
+
+    const repoDir = fixtureDirs.make("openclaw-msteams-bundle-contract-");
+    const packageDir = join(repoDir, "extensions", "msteams");
+    const packagePath = join(packageDir, "package.json");
+    writeFileText(packagePath, sourceText);
+    for (const entry of ["index", "setup-entry", "configured-state"]) {
+      writeFileText(join(packageDir, `${entry}.ts`), "export {};\n");
+      writeFileText(join(packageDir, "dist", `${entry}.cjs`), "module.exports = {};\n");
+    }
+    const resolved = resolveAugmentedPluginNpmPackageJson({
+      repoRoot: repoDir,
+      packageDir,
+      bundleDependencies: true,
+    });
+    expect(resolved.bundleDependencies).toBe(true);
+    const packed = resolved.packageJson;
+    expect(packed).toBeDefined();
+    if (!packed) {
+      throw new Error("Teams runtime bundle manifest was not produced");
+    }
+    const runtimeDependencies = [
+      "@azure/identity",
+      "@microsoft/teams.api",
+      "@microsoft/teams.apps",
+      "express",
+      "typebox",
+      "zod",
+    ];
+    expect(packed.bundledDependencies).toEqual(runtimeDependencies);
+    expect(packed.dependencies).toEqual(packageJson.dependencies);
+    expect(packed.devDependencies).toBeUndefined();
+    expect(packed.bundleDependencies).toBeUndefined();
+
+    // The temporary install manifest drops bundle metadata without changing the packed manifest.
+    const packedBeforeInstall = JSON.stringify(packed);
+    const installManifest = packageJsonForNpmLock(packed, overrides);
+    for (const candidate of [overrides, installManifest.overrides]) {
+      for (const parent of authenticationParents) {
+        expect(candidate).toMatchObject({
+          [parent]: { "@azure/msal-node": expect.anything() },
+        });
+        const child = (candidate as Record<string, Record<string, unknown>>)[parent]?.[
+          "@azure/msal-node"
+        ];
+        // npm supports a scalar pin or an object whose "." owns the same exact version.
+        expect(typeof child === "string" ? child : (child as Record<string, unknown>)["."]).toBe(
+          "7.1.0",
+        );
+      }
+    }
+    expect(installManifest.dependencies).toEqual(packageJson.dependencies);
+    expect(installManifest.bundledDependencies).toBeUndefined();
+    expect(installManifest.bundleDependencies).toBeUndefined();
+    expect(installManifest.devDependencies).toBeUndefined();
+    expect(JSON.stringify(packed)).toBe(packedBeforeInstall);
+    expect(readFileSync(packagePath, "utf8")).toBe(sourceText);
+    expect(readFileSync(sourcePath, "utf8")).toBe(sourceText);
+    expect(existsSync(join(packageDir, "node_modules"))).toBe(false);
+    expect(existsSync(join(packageDir, "package-lock.json"))).toBe(false);
   });
 
   it("retries timed-out bundled dependency installs after cleaning partial output", () => {
