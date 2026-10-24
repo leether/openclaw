@@ -6,13 +6,13 @@ import path from "node:path";
 import { verifyPackageTree } from "../patched-consumer-contract.mjs";
 
 export const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
-export const MANIFEST_SHA = "0a55a1dd6a42524cc3d512aa66dd4722aae436056b91fa167a78e0aefeb984f1";
+const MANIFEST_SHA = "0a55a1dd6a42524cc3d512aa66dd4722aae436056b91fa167a78e0aefeb984f1";
 const manifestBytes = fs.readFileSync(new URL("./frozen/target-manifest.json", import.meta.url));
 assert.equal(sha(manifestBytes), MANIFEST_SHA, "frozen SDK manifest identity");
-export const sdkManifest = JSON.parse(manifestBytes);
+const sdkManifest = JSON.parse(manifestBytes);
 assert.equal(Object.keys(sdkManifest).length, 231);
 assert.equal(Object.keys(sdkManifest).filter((name) => name.startsWith("output/")).length, 227);
-export const SDK_TREE = {
+const SDK_TREE = {
   name: "@discord/embedded-app-sdk",
   version: "2.5.0",
   fileCount: 231,
@@ -26,7 +26,7 @@ export const SDK_TREE = {
   ],
 };
 
-export function relativeFile(value) {
+function relativeFile(value) {
   assert.equal(typeof value, "string");
   const normalized = value.replace(/^\.\//, "");
   assert.ok(normalized.length > 0 && normalized.length < 512 && !path.isAbsolute(normalized));
@@ -35,7 +35,7 @@ export function relativeFile(value) {
   return normalized;
 }
 
-export function within(root, file) {
+function within(root, file) {
   const relative = path.relative(root, file);
   assert.ok(
     relative &&
@@ -47,7 +47,7 @@ export function within(root, file) {
   return relative.split(path.sep).join("/");
 }
 
-export function readOwnFile(root, name, maxBytes = 16 * 1024 * 1024) {
+function readOwnFile(root, name, maxBytes = 16 * 1024 * 1024) {
   const rel = relativeFile(name);
   let current = root;
   for (const part of rel.split("/")) {

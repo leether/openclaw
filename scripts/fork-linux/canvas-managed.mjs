@@ -22,7 +22,7 @@ function counters(text) {
       }),
   );
 }
-export function kernelSnapshot() {
+function kernelSnapshot() {
   const line = fs
     .readFileSync("/proc/self/cgroup", "utf8")
     .trim()

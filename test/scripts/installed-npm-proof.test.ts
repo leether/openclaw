@@ -547,6 +547,11 @@ function qualifyingReport(version = "24.22.1") {
       headerSha256: { "include/node/fixture.gypi": digest, "include/node/fixture.h": digest },
     };
   }
+  const mainInventory: { files: number; bytes: number; treeSha256: string } = {
+    files: BUNDLED_NPM_CONTRACT.derivedFiles,
+    bytes: 1,
+    treeSha256: BUNDLED_NPM_CONTRACT.derivedTreeSha256,
+  };
   return {
     protocol: "npm-node-gyp-consumer-v1",
     node: `v${version}`,
@@ -567,11 +572,7 @@ function qualifyingReport(version = "24.22.1") {
     phases: ["1.0.0", "1.0.1", "1.0.0"].map((v) => ({ version: v, installScriptSuppressed: true })),
     commands: Array.from({ length: 6 }, () => commandReceipt()),
     qualificationEligible: true,
-    mainInventory: {
-      files: BUNDLED_NPM_CONTRACT.derivedFiles,
-      bytes: 1,
-      treeSha256: BUNDLED_NPM_CONTRACT.derivedTreeSha256,
-    },
+    mainInventory,
     mainAuthentication: {
       officialInputs: {
         npmIntegrity: BUNDLED_NPM_CONTRACT.npmIntegrity,

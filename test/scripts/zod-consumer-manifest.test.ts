@@ -51,13 +51,15 @@ function fixture() {
   };
   const sdk = packages[2];
   assert.ok(sdk);
+  const derivedProbes: { provenanceSha256: string; probes: Record<string, string> } =
+    readDerivedProbeIdentity();
   const discord = {
     schema: "discord-installed-contract-v1",
     plugin: { name: "@openclaw/discord", version: "2026.10.4" },
     sdk: { name: sdk.name, version: "2.5.0", zod: "4.6.6", zodPackageSha256: sha("zod-package") },
     sdkTree: { targetTreeSha256: sdk.targetTreeSha256 },
     sourceProvenance: { patchSha256: sdk.patchSha256, sourcePatchSha256: sdk.sourcePatchSha256 },
-    derivedProbes: readDerivedProbeIdentity(),
+    derivedProbes,
     assets: [{ installedPath: "dist/assets/embedded-app-sdk.mjs", sha256: sha("asset") }],
   };
   const audit = { metadata: { vulnerabilities: { high: 0, critical: 0 } } };
@@ -100,7 +102,7 @@ function fixture() {
   });
   const runtimes = [];
   const sdkReports = [];
-  for (const version of ["24.22.1", "24.22.0"])
+  for (const version of ["24.22.1", "24.22.0"]) {
     for (const prefix of ["installed", "restored"]) {
       const runtime = {
         passed: true,
@@ -173,6 +175,7 @@ function fixture() {
       runtimes.push(runtime);
       sdkReports.push(report);
     }
+  }
   const browser = {
     passed: true,
     platform: "linux",
@@ -362,35 +365,81 @@ describe("installed migration evidence aggregation", () => {
     const sdk = f.sdkReports[3];
     assert.ok(runtime && sdk && sdk.formats.esm);
     const esm = sdk.formats.esm;
-    if (fault === "missing") f.records.delete("restored-discord-proof-24.22.0.json");
-    if (fault === "stale-capture") runtime.captureSha256 = sha("old");
-    if (fault === "unjoined-child") esm.children.publicSDK.closed = false;
-    if (fault === "old-parser") esm.threeElementsMaxOne.elementVisits = 3;
-    if (fault === "high-audit") f.audit.metadata.vulnerabilities.high = 1;
-    if (fault === "wrong-browser") f.browser.caseCounts.passed = 3;
-    if (fault === "changed-restored-bytes") sdk.artifactHashes.sdkCarrierTree = sha("old");
-    if (fault === "changed-zod-version") sdk.identity.resolvedZodVersion = "3.25.76";
-    if (fault === "changed-zod-bytes") sdk.artifactHashes.resolvedZodPackage = sha("changed");
-    if (fault === "escaping-zod-path") sdk.identity.zodPackageRelative = "../zod/package.json";
-    if (fault === "different-restored-zod-path")
+    if (fault === "missing") {
+      f.records.delete("restored-discord-proof-24.22.0.json");
+    }
+    if (fault === "stale-capture") {
+      runtime.captureSha256 = sha("old");
+    }
+    if (fault === "unjoined-child") {
+      esm.children.publicSDK.closed = false;
+    }
+    if (fault === "old-parser") {
+      esm.threeElementsMaxOne.elementVisits = 3;
+    }
+    if (fault === "high-audit") {
+      f.audit.metadata.vulnerabilities.high = 1;
+    }
+    if (fault === "wrong-browser") {
+      f.browser.caseCounts.passed = 3;
+    }
+    if (fault === "changed-restored-bytes") {
+      sdk.artifactHashes.sdkCarrierTree = sha("old");
+    }
+    if (fault === "changed-zod-version") {
+      sdk.identity.resolvedZodVersion = "3.25.76";
+    }
+    if (fault === "changed-zod-bytes") {
+      sdk.artifactHashes.resolvedZodPackage = sha("changed");
+    }
+    if (fault === "escaping-zod-path") {
+      sdk.identity.zodPackageRelative = "../zod/package.json";
+    }
+    if (fault === "different-restored-zod-path") {
       sdk.identity.zodPackageRelative = "node_modules/other/node_modules/zod/package.json";
+    }
     const browser = f.browser;
     const row = browser.results[3];
     assert.ok(row);
-    if (fault === "repeated-browser-combination") row.version = "v08";
-    if (fault === "wrong-browser-bundle") row.bundleSha256 = sha("wrong");
-    if (fault === "missing-browser-steps") row.tests.pop();
-    if (fault === "browser-cdp-open") browser.cleanup.cdpClosed = false;
-    if (fault === "browser-cleanup-error") browser.cleanup.closeError = "failed";
-    if (fault === "browser-output-cap") browser.browserOutput.limitExceeded = true;
-    if (fault === "browser-cgroup-drift") browser.workerContainment.after.inode = "changed";
-    if (fault === "browser-swap") browser.containment.memorySwapMax = 1;
-    if (fault === "browser-budget") browser.containment.elapsedMs = 60000;
-    if (fault === "browser-unjoined") browser.containment.empty = false;
-    if (fault === "browser-limit-hit") browser.workerContainment.after.events.max = 1;
-    if (fault === "browser-active-unit") browser.containment.finalUnitState.ActiveState = "active";
-    if (fault === "browser-owner-mismatch")
+    if (fault === "repeated-browser-combination") {
+      row.version = "v08";
+    }
+    if (fault === "wrong-browser-bundle") {
+      row.bundleSha256 = sha("wrong");
+    }
+    if (fault === "missing-browser-steps") {
+      row.tests.pop();
+    }
+    if (fault === "browser-cdp-open") {
+      browser.cleanup.cdpClosed = false;
+    }
+    if (fault === "browser-cleanup-error") {
+      browser.cleanup.closeError = "failed";
+    }
+    if (fault === "browser-output-cap") {
+      browser.browserOutput.limitExceeded = true;
+    }
+    if (fault === "browser-cgroup-drift") {
+      browser.workerContainment.after.inode = "changed";
+    }
+    if (fault === "browser-swap") {
+      browser.containment.memorySwapMax = 1;
+    }
+    if (fault === "browser-budget") {
+      browser.containment.elapsedMs = 60000;
+    }
+    if (fault === "browser-unjoined") {
+      browser.containment.empty = false;
+    }
+    if (fault === "browser-limit-hit") {
+      browser.workerContainment.after.events.max = 1;
+    }
+    if (fault === "browser-active-unit") {
+      browser.containment.finalUnitState.ActiveState = "active";
+    }
+    if (fault === "browser-owner-mismatch") {
       browser.workerContainment.nonce = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    }
     await expect(f.run()).rejects.toThrow();
   });
 });

@@ -4,7 +4,7 @@ import { CASES } from "./consumer-proof.mjs";
 import { TARGET } from "./loopback.mjs";
 import { OWNER_TEST_FILES, LIFECYCLE_TEST_FILE, verifyOwnerTests } from "./owner-test-contract.mjs";
 
-export const NPM_ARTIFACT_NAMES = [
+const NPM_ARTIFACT_NAMES = [
   "npm-owner-tests.json",
   "npm-pack-lifecycle-tests.json",
   "npm-original-12.2.1.tgz",

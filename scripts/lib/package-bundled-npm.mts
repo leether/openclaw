@@ -15,9 +15,7 @@ export const BUNDLED_NPM_CONTRACT = Object.freeze({
   derivedFiles: 1984,
   unchangedOutsideUndiciFiles: 1808,
 });
-export const NPM_BUNDLE_VERSION = BUNDLED_NPM_CONTRACT.npmVersion;
 export const NPM_BUNDLE_INTEGRITY = BUNDLED_NPM_CONTRACT.npmIntegrity;
-export const NPM_BUNDLE_UNDICI_INTEGRITY = BUNDLED_NPM_CONTRACT.undiciIntegrity;
 export const NPM_BUNDLE_DERIVATION_ID = BUNDLED_NPM_CONTRACT.version;
 
 const BLOCK = 512;

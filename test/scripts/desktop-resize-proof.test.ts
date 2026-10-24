@@ -686,6 +686,70 @@ describe("desktop proof identity and public evidence", () => {
     expect(result.files[0]?.assertions[0]?.failures[0]?.category).toBe(category);
   });
 
+  it("retains a failed admission's fixed RPC facts without publishing its raw context", () => {
+    const diagnostic = {
+      stage: "command-approval",
+      method: "node.pair.approve",
+      outcome: "rpc-error",
+      code: "INVALID_REQUEST",
+      category: "missing-scope",
+      retryable: false,
+      missingScope: "operator.pairing",
+    };
+    const result = desktopProofTestReport(
+      rawTestReport("Error: private raw response", {
+        desktopNodeAdmissionFailure: {
+          ...diagnostic,
+          message: "private raw response",
+          requestId: "private-request",
+          nodeId: "private-node",
+          params: { token: "private-token" },
+          details: { private: "private-detail" },
+        },
+      }),
+    );
+    expect(result.files[0]?.assertions[0]?.nodeAdmissionFailure).toEqual(diagnostic);
+    expect(result.failedTests).toBe(1);
+    expect(result.files[0]?.assertions[0]?.status).toBe("failed");
+    expect(JSON.stringify(result)).not.toMatch(/private|requestId|nodeId|params|token|details/u);
+  });
+
+  it.each([
+    ["stage", "private-stage"],
+    ["method", "private-method"],
+    ["outcome", "success"],
+    ["code", "PRIVATE_CODE"],
+    ["category", "private-category"],
+    ["retryable", "private-value"],
+    ["missingScope", "private-scope"],
+  ])("rejects an unqualified admission diagnostic %s", (key, value) => {
+    expect(() =>
+      desktopProofTestReport(
+        rawTestReport(undefined, {
+          desktopNodeAdmissionFailure: {
+            stage: "device-admission",
+            method: "node.list",
+            outcome: "rpc-error",
+            code: "other",
+            category: "other",
+            retryable: null,
+            missingScope: null,
+            [key]: value,
+          },
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it("does not export an admission failure on a successful assertion", () => {
+    const report = rawTestReport(undefined, {
+      desktopNodeAdmissionFailure: { private: "private-token" },
+    });
+    report.testResults[0]!.assertionResults[0]!.status = "passed";
+    const result = desktopProofTestReport(report);
+    expect(result.files[0]?.assertions[0]).not.toHaveProperty("nodeAdmissionFailure");
+  });
+
   it.each([
     { label: "mismatch", override: {} },
     {

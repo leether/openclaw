@@ -42,11 +42,17 @@ type DesktopProofPhase = Exclude<
 type DesktopViewerResizeFailure = NonNullable<
   ReturnType<typeof desktopProofTestReport>["files"][number]["assertions"][number]["viewerResize"]
 >;
+type DesktopNodeAdmissionFailure = NonNullable<
+  ReturnType<
+    typeof desktopProofTestReport
+  >["files"][number]["assertions"][number]["nodeAdmissionFailure"]
+>;
 
 declare module "vitest" {
   interface TaskMeta {
     desktopProofPhase?: DesktopProofPhase;
     desktopViewerResizeFailure?: DesktopViewerResizeFailure;
+    desktopNodeAdmissionFailure?: DesktopNodeAdmissionFailure;
     desktopGatewayReadiness?: GatewayReadinessDiagnostic[];
   }
 }
@@ -320,7 +326,11 @@ suite.define(() => {
             phase("admin-connect");
             ({ client: admin } = await SkillLibraryWireClient.connect(endpoint));
             phase("node-admission");
-            await node!.start(admin);
+            await node!.start(admin, {
+              onAdmissionFailure: (failure) => {
+                context.task.meta.desktopNodeAdmissionFailure = failure;
+              },
+            });
           }
           phase("guest-ssh");
           guest = await createDesktopResizeGuest(fixture);

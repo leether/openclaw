@@ -7,7 +7,7 @@ import {
 } from "../../lib/managed-child-process.mts";
 
 export const OUTPUT_LIMIT = 262144;
-export const CANCEL_GRACE_MS = 3500;
+const CANCEL_GRACE_MS = 3500;
 
 // Reuse the repository process-tree owner. Killing only npm's PID leaves its
 // lifecycle shell/node-gyp descendants outside the proof's terminal boundary.

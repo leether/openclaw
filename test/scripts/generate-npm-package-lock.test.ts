@@ -55,7 +55,9 @@ describe("generate-npm-package-lock", () => {
         "node_modules/npm/node_modules/undici": { version: "6.29.1", inBundle: true },
       };
       const pins = new Set(["npm@12.2.1"]);
-      const hashes = new Map([["npm@12.2.1", new Set([NPM_BUNDLE_INTEGRITY])]]);
+      const hashes = new Map<string, Set<string>>([
+        ["npm@12.2.1", new Set([NPM_BUNDLE_INTEGRITY])],
+      ]);
       const check = (
         lock = { packages },
         tarball = derived.tarball,
