@@ -5,12 +5,36 @@ import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import type { ConsoleMessage, Frame, Page, Request } from "playwright";
 import { agentRouteFromPath, isRouteId, pathForRoute } from "../app-route-paths.ts";
 import { createControlUiE2eArtifactDir } from "./control-ui-e2e-artifacts.ts";
+import {
+  createControlUiNetworkDiagnostics,
+  type ControlUiNetworkEvent,
+  type ControlUiNetworkSnapshot,
+} from "./control-ui-e2e-network-diagnostics.ts";
 import { captureControlUiE2eRendererStall } from "./control-ui-e2e-renderer-stall.ts";
 
 const CONTROL_UI_E2E_DIAGNOSTIC_RING_LIMIT = 200;
 const controlUiE2ePageDiagnostics = new WeakMap<Page, ControlUiE2eDiagnosticEvent[]>();
 const controlUiE2eUnhandledRejectionPages = new WeakSet<Page>();
+const controlUiE2ePageNetworks = new WeakMap<
+  Page,
+  ReturnType<typeof createControlUiNetworkDiagnostics>
+>();
+type ControlUiE2eNavigation = {
+  id: number;
+  operation: "goto" | "reload";
+  waitUntil: string | null;
+  phase: "native-navigation" | "initial-roster" | "complete";
+  failed: boolean;
+  startedAt: string;
+  nativeResolvedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
+};
 type ControlUiE2ePageLifecycle = {
+  navigationSequence: number;
+  lastDomContentLoadedObservedAt: string | null;
+  lastLoadObservedAt: string | null;
+  navigation: ControlUiE2eNavigation | null;
   registeredAt: string;
   firstCrashAt: string | null;
   firstCloseAt: string | null;
@@ -19,11 +43,81 @@ type ControlUiE2ePageLifecycle = {
 // Retain only fixed host facts after close; missing events mean unobserved since registration.
 const controlUiE2ePageLifecycles = new WeakMap<Page, ControlUiE2ePageLifecycle>();
 
-export type ControlUiE2eDiagnosticEvent = {
-  at: string;
-  details: Record<string, unknown>;
-  source: "console" | "framenavigated" | "pageerror" | "requestfailed";
-};
+/** Latest owned navigation only; no URL, request, response, or error content is retained. */
+export function recordControlUiE2eNavigation(
+  page: Page,
+  event:
+    | "goto"
+    | "reload"
+    | "native-resolved"
+    | "complete"
+    | "failed"
+    | "domcontentloaded"
+    | "load",
+  details?: { navigationId?: number | null; waitUntil?: string },
+): number | null {
+  try {
+    const lifecycle = controlUiE2ePageLifecycles.get(page);
+    if (!lifecycle) {
+      return null;
+    }
+    const now = new Date().toISOString();
+    // Playwright page events have no wrapper token. Keep them as page observations,
+    // not as proof that this particular navigation reached a lifecycle boundary.
+    if (event === "domcontentloaded") {
+      lifecycle.lastDomContentLoadedObservedAt = now;
+      return null;
+    }
+    if (event === "load") {
+      lifecycle.lastLoadObservedAt = now;
+      return null;
+    }
+    if (event === "goto" || event === "reload") {
+      lifecycle.navigationSequence += 1;
+      lifecycle.navigation = {
+        id: lifecycle.navigationSequence,
+        operation: event,
+        waitUntil:
+          ["load", "domcontentloaded", "networkidle", "commit"].find(
+            (value) => value === (details?.waitUntil ?? "load"),
+          ) ?? null,
+        phase: "native-navigation",
+        failed: false,
+        startedAt: now,
+        nativeResolvedAt: null,
+        completedAt: null,
+        failedAt: null,
+      };
+      return lifecycle.navigation.id;
+    }
+    const navigation = lifecycle.navigation;
+    if (!navigation || navigation.id !== details?.navigationId) {
+      return null;
+    }
+    if (event === "native-resolved") {
+      navigation.phase = "initial-roster";
+      navigation.nativeResolvedAt = now;
+    } else if (event === "complete") {
+      navigation.phase = "complete";
+      navigation.completedAt = now;
+    } else {
+      navigation.failed = true;
+      navigation.failedAt = now;
+    }
+    return navigation.id;
+  } catch {
+    // Preserve navigation's original Response and rejection identity.
+    return null;
+  }
+}
+
+export type ControlUiE2eDiagnosticEvent =
+  | {
+      at: string;
+      details: Record<string, unknown>;
+      source: "console" | "framenavigated" | "pageerror" | "requestfailed";
+    }
+  | { at: string; details: ControlUiNetworkEvent; source: "network" };
 
 export function installControlUiE2ePageDiagnosticRing(page: Page): ControlUiE2eDiagnosticEvent[] {
   const existing = controlUiE2ePageDiagnostics.get(page);
@@ -35,6 +129,10 @@ export function installControlUiE2ePageDiagnosticRing(page: Page): ControlUiE2eD
     return [];
   }
   const lifecycle: ControlUiE2ePageLifecycle = {
+    navigationSequence: 0,
+    lastDomContentLoadedObservedAt: null,
+    lastLoadObservedAt: null,
+    navigation: null,
     registeredAt: new Date().toISOString(),
     firstCrashAt: null,
     firstCloseAt: null,
@@ -50,12 +148,37 @@ export function installControlUiE2ePageDiagnosticRing(page: Page): ControlUiE2eD
   };
   const onBrowserDisconnect = () => {
     lifecycle.firstBrowserDisconnectAt ??= new Date().toISOString();
+    retireNetwork("browser-disconnect");
   };
+  const onDomContentLoaded = () => recordControlUiE2eNavigation(page, "domcontentloaded");
+  const onLoad = () => recordControlUiE2eNavigation(page, "load");
   const events: ControlUiE2eDiagnosticEvent[] = [];
   const push = (event: ControlUiE2eDiagnosticEvent) => {
     events.push(event);
     if (events.length > CONTROL_UI_E2E_DIAGNOSTIC_RING_LIMIT) {
-      events.splice(0, events.length - CONTROL_UI_E2E_DIAGNOSTIC_RING_LIMIT);
+      const removed = events.splice(0, events.length - CONTROL_UI_E2E_DIAGNOSTIC_RING_LIMIT);
+      for (const event of removed) {
+        if (event.source === "network") {
+          network.evicted();
+        }
+      }
+    }
+  };
+  const network = createControlUiNetworkDiagnostics({
+    record: (event) => push({ at: new Date().toISOString(), details: event, source: "network" }),
+    readEvents: () =>
+      events.flatMap((event) => (event.source === "network" ? [event.details] : [])),
+  });
+  controlUiE2ePageNetworks.set(page, network);
+  const retireNetwork = (reason: "page-close" | "browser-disconnect") => {
+    try {
+      network.retire(reason);
+    } catch {
+      // Diagnostic retirement cannot interrupt the page owner's cleanup.
+    } finally {
+      page.off("request", network.request);
+      page.off("response", network.response);
+      page.off("requestfinished", network.finished);
     }
   };
   const onConsole = (message: ConsoleMessage) => {
@@ -77,6 +200,7 @@ export function installControlUiE2ePageDiagnosticRing(page: Page): ControlUiE2eD
     });
   };
   const onRequestFailed = (request: Request) => {
+    network.failed(request);
     push({
       at: new Date().toISOString(),
       details: {
@@ -100,18 +224,26 @@ export function installControlUiE2ePageDiagnosticRing(page: Page): ControlUiE2eD
       source: "framenavigated",
     });
   };
+  page.on("domcontentloaded", onDomContentLoaded);
+  page.on("load", onLoad);
   page.on("console", onConsole);
   page.on("framenavigated", onFrameNavigated);
   page.on("pageerror", onPageError);
   page.on("requestfailed", onRequestFailed);
+  page.on("request", network.request);
+  page.on("response", network.response);
+  page.on("requestfinished", network.finished);
   page.once("crash", onCrash);
   if (browser?.isConnected()) {
     browser.once("disconnected", onBrowserDisconnect);
   }
   page.once("close", () => {
     lifecycle.firstCloseAt ??= new Date().toISOString();
+    retireNetwork("page-close");
     page.off("crash", onCrash);
     browser?.off("disconnected", onBrowserDisconnect);
+    page.off("domcontentloaded", onDomContentLoaded);
+    page.off("load", onLoad);
     page.off("console", onConsole);
     page.off("framenavigated", onFrameNavigated);
     page.off("pageerror", onPageError);
@@ -316,6 +448,13 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
     pageClosed: page.isClosed(),
     browserConnected: page.context().browser()?.isConnected() ?? null,
   };
+  // Freeze host network facts before an asynchronous renderer read can run late.
+  let networkBeforeRead: ControlUiNetworkSnapshot | null = null;
+  try {
+    networkBeforeRead = controlUiE2ePageNetworks.get(page)?.snapshot() ?? null;
+  } catch {
+    // Unavailable evidence stays null; the original failure still owns this capture.
+  }
   const rendererDeadlineError = new Error("page.evaluate diagnostics timed out");
   let rendererRead: "completed" | "rejected" | "deadline" = "completed";
   try {
@@ -337,6 +476,9 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
               connected?: unknown;
             };
           };
+          sessions?: {
+            state?: { loading?: unknown; result?: unknown; resultCached?: unknown };
+          };
           agentSelection?: { state?: unknown };
           gateway?: {
             snapshot?: { assistantAgentId?: unknown; hello?: unknown; phase?: unknown };
@@ -346,24 +488,59 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
         router?: { getState?: () => unknown };
       };
       type MockGateway = {
+        initialRosterDelivered?: unknown;
         requests?: unknown[];
         socketStates?: () => Array<{ readyState: number; state: string; url: string }>;
         socketUrls?: () => string[];
       };
       const windowState = window as Window & {
+        __OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__?: Record<string, unknown>;
         __OPENCLAW_CONTROL_UI_E2E_LONG_FRAMES__?: () => unknown[];
         __OPENCLAW_CONTROL_UI_E2E_UNHANDLED_REJECTIONS__?: unknown[];
         openclawControlUiE2eGateway?: MockGateway;
       };
-      const app = document.querySelector("openclaw-app") as
-        | (HTMLElement & { runtime?: Runtime })
-        | null;
-      const shell = document.querySelector("openclaw-app-shell") as
-        | (HTMLElement & { runtime?: Runtime })
-        | null;
+      type RenderHost = HTMLElement & {
+        hasUpdated?: unknown;
+        isUpdatePending?: unknown;
+        runtime?: Runtime;
+        navigationSidebar?: HTMLElement & {
+          navigationVisible?: unknown;
+          hasUpdated?: unknown;
+          isUpdatePending?: unknown;
+        };
+      };
+      const app = document.querySelector("openclaw-app") as RenderHost | null;
+      const shell = document.querySelector("openclaw-app-shell") as RenderHost | null;
       const runtime = app?.runtime ?? shell?.runtime;
       const context = runtime?.context;
       const agentsState = context?.agents?.state;
+      // Mirror the readiness owner's app-local lookup, not the fallback shell runtime.
+      const sessionsState = app?.runtime?.context?.sessions?.state;
+      const readinessShell = app?.querySelector("openclaw-app-shell") as
+        | RenderHost
+        | null
+        | undefined;
+      const sidebar = readinessShell?.navigationSidebar;
+      const readiness = windowState.__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__;
+      const boolOrNull = (value: unknown) => (typeof value === "boolean" ? value : null);
+      const numberOrNull = (value: unknown) =>
+        typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+      const sessions =
+        sessionsState?.result && typeof sessionsState.result === "object"
+          ? (sessionsState.result as { sessions?: unknown }).sessions
+          : undefined;
+      const readinessPhases = [
+        "predicate",
+        "app-update",
+        "shell-update",
+        "sidebar-update",
+        "animation-frame",
+        "complete",
+      ];
+      const phaseEnteredAtMs =
+        readiness?.phaseEnteredAtMs && typeof readiness.phaseEnteredAtMs === "object"
+          ? (readiness.phaseEnteredAtMs as Record<string, unknown>)
+          : null;
       const gatewaySnapshot = context?.gateway?.snapshot;
       const routerState = runtime?.router?.getState?.() ?? context?.router?.getState?.();
       const summarizeMatches = (matches: unknown): unknown =>
@@ -504,6 +681,70 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
             "reload-required",
           ]),
           connected: typeof agentsState?.connected === "boolean" ? agentsState.connected : null,
+          // Legacy `roster` means agents; it is not the sessions readiness owner.
+          sessionsReadiness: {
+            initialRosterDelivered: boolOrNull(
+              windowState.openclawControlUiE2eGateway?.initialRosterDelivered,
+            ),
+            resultPresent:
+              sessionsState && "result" in sessionsState ? Boolean(sessionsState.result) : null,
+            resultCached: boolOrNull(sessionsState?.resultCached),
+            loading: boolOrNull(sessionsState?.loading),
+            count: Array.isArray(sessions) ? sessions.length : null,
+            appPresent: Boolean(app),
+            appHasUpdated: boolOrNull(app?.hasUpdated),
+            appUpdatePending: boolOrNull(app?.isUpdatePending),
+            runtimePresent: app ? Boolean(app.runtime) : null,
+            shellPresent: app ? Boolean(readinessShell) : null,
+            shellHasUpdated: boolOrNull(readinessShell?.hasUpdated),
+            shellUpdatePending: boolOrNull(readinessShell?.isUpdatePending),
+            shellContentPresent: readinessShell
+              ? Boolean(readinessShell.querySelector(".shell"))
+              : null,
+            sidebarPresent: readinessShell ? Boolean(sidebar) : null,
+            sidebarConnected: boolOrNull(sidebar?.isConnected),
+            sidebarNavigationVisible: boolOrNull(sidebar?.navigationVisible),
+            sidebarHasUpdated: boolOrNull(sidebar?.hasUpdated),
+            sidebarUpdatePending: boolOrNull(sidebar?.isUpdatePending),
+            // First stage timestamps preserve ordering when a Promise completes after timeout.
+            // These use the renderer clock; navigation timestamps use the host clock.
+            wait: readiness
+              ? {
+                  attempt: numberOrNull(readiness.attempt),
+                  navigationId: numberOrNull(readiness.navigationId),
+                  phase: readinessPhases.find((value) => value === readiness.phase) ?? null,
+                  reason:
+                    [
+                      "document-loading",
+                      "app-absent",
+                      "app-not-updated",
+                      "app-update-pending",
+                      "runtime-absent",
+                      "offline",
+                      "special-view",
+                      "shell-not-updated",
+                      "shell-update-pending",
+                      "shell-content-absent",
+                      "sidebar-omitted",
+                      "roster-not-delivered",
+                      "sessions-result-absent",
+                      "sessions-loading",
+                      "sessions-cached",
+                      "sidebar-update-absent",
+                    ].find((value) => value === readiness.reason) ?? null,
+                  timeOriginMs: numberOrNull(readiness.timeOriginMs),
+                  phaseEnteredAtMs: Object.fromEntries(
+                    readinessPhases.map((phase) => [
+                      phase,
+                      numberOrNull(phaseEnteredAtMs?.[phase]),
+                    ]),
+                  ),
+                  phaseStartedAtMs: numberOrNull(readiness.phaseStartedAtMs),
+                  sampledAtMs: numberOrNull(readiness.sampledAtMs),
+                  pollCount: numberOrNull(readiness.pollCount),
+                }
+              : null,
+          },
           roster: {
             loading:
               typeof agentsState?.agentsLoading === "boolean" ? agentsState.agentsLoading : null,
@@ -649,6 +890,7 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
               : "unknown",
     browser: summary,
     hostBeforeRead,
+    networkBeforeRead,
     lifecycle: controlUiE2ePageLifecycles.get(page) ?? null,
     rendererRead,
     rendererStall: await captureControlUiE2eRendererStall(page, rendererRead),
