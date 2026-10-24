@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
+import { createServer, createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test } from "vitest";
 import {
+  createBrowserTemporaryDirectory,
+  verifyBrowserTemporaryPath,
   createBrowserOutputBudget,
   finalizeBrowserOutput,
 } from "../../scripts/fork-linux/canvas-browser.mjs";
@@ -225,4 +229,44 @@ test("privileged prerequisite owner keeps failure, cancellation and repeat clean
     failures: 0,
     errors: 0,
   });
+});
+
+test("Chromium singleton path rejects long hosted evidence paths and counts UTF-8 bytes", () => {
+  assert.throws(() => verifyBrowserTemporaryPath("relative"));
+  assert.throws(() => verifyBrowserTemporaryPath("/tmp/invalid\0"));
+  assert.throws(
+    () =>
+      verifyBrowserTemporaryPath(
+        "/home/runner/work/openclaw/openclaw/.artifacts/fork-linux-package/canvas-sandbox-preflight/state/installed-restored-canvas",
+      ),
+    /103 bytes/u,
+  );
+  assert.throws(() => verifyBrowserTemporaryPath("/tmp/" + "界".repeat(30)), /103 bytes/u);
+});
+test("private short Chromium TMPDIR admits an actual singleton Unix socket", async () => {
+  const directory = await createBrowserTemporaryDirectory();
+  const socket = verifyBrowserTemporaryPath(directory.path);
+  assert.equal(directory.mode, 0o700);
+  assert.equal(directory.uid, process.getuid());
+  fs.mkdirSync(path.dirname(socket), { mode: 0o700 });
+  const server = createServer((connection) => connection.end("synthetic-socket-ok"));
+  let client;
+  try {
+    server.listen(socket);
+    await once(server, "listening");
+    client = createConnection(socket);
+    client.setEncoding("utf8");
+    let received = "";
+    client.on("data", (chunk) => {
+      received += String(chunk);
+    });
+    await once(client, "close");
+    assert.equal(received, "synthetic-socket-ok");
+  } finally {
+    client?.destroy();
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+    fs.rmSync(directory.path, { recursive: true, force: true });
+  }
 });

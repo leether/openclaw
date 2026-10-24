@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat, mkdtemp, realpath, lstat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -27,6 +27,31 @@ export function finalizeBrowserOutput(result, budget) {
     result.passed = false;
     result.error ??= "Chromium combined output exceeded 32KiB";
   }
+}
+// Chromium creates its singleton Unix socket beneath TMPDIR. Keep this separate
+// from the long evidence/profile path and below the portable sockaddr_un limit.
+export function verifyBrowserTemporaryPath(directory) {
+  assert.ok(path.isAbsolute(directory) && !directory.includes("\0"));
+  const socket = path.join(directory, "org.chromium.Chromium.XXXXXX", "SingletonSocket");
+  assert.ok(Buffer.byteLength(socket) < 104, "Chromium temporary socket path exceeds 103 bytes");
+  return socket;
+}
+export async function createBrowserTemporaryDirectory() {
+  // Never inherit TMPDIR: hosted checkout and artifact paths can exceed sun_path.
+  const directory = await realpath(await mkdtemp("/tmp/oc-canvas-"));
+  const metadata = await lstat(directory);
+  assert.ok(metadata.isDirectory() && !metadata.isSymbolicLink());
+  assert.equal(metadata.uid, process.getuid());
+  assert.equal(metadata.mode & 0o777, 0o700);
+  verifyBrowserTemporaryPath(directory);
+  return {
+    path: directory,
+    uid: metadata.uid,
+    mode: metadata.mode & 0o777,
+    device: String(metadata.dev),
+    inode: String(metadata.ino),
+    retainedUntilRunnerTeardown: true,
+  };
 }
 export async function runBrowserProof({
   root,
@@ -127,6 +152,7 @@ export async function runBrowserProof({
   let stderr = "";
   const outputBudget = createBrowserOutputBudget();
   try {
+    result.temporaryDirectory = await createBrowserTemporaryDirectory();
     sandboxAuthority = openSandboxAuthority(executable);
     const args = [
       "--headless",
@@ -157,7 +183,7 @@ export async function runBrowserProof({
         HOME: profile,
         XDG_CONFIG_HOME: profile,
         XDG_CACHE_HOME: profile,
-        TMPDIR: profile,
+        TMPDIR: result.temporaryDirectory.path,
         LANG: "C.UTF-8",
       },
     });

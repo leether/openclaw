@@ -119,6 +119,12 @@ network access. The production install's script policy is not relaxed. The
 http-cache-semantics CVE-2026-93748 remains disputed by its maintainer: an audit
 passing for version 4.3.0 is not an independent semantic-fix claim.
 
+Chromium gets a fresh owner-only short `/tmp/oc-canvas-*` directory for its
+Unix socket, independent of the long evidence/profile path. The proof records
+its owner and filesystem identity, checks the socket path byte limit, and retains
+the synthetic directory until disposable runner teardown. Sandbox and cgroup
+requirements are unchanged. A real Unix socket fixture checks this boundary.
+
 The success artifact includes `qualification.json`, `SHA256SUMS`, the canonical
 package, the complete runtime installation, dependency locks, and Node input
 signature evidence. Synthetic diagnostic artifacts can also be uploaded after a
