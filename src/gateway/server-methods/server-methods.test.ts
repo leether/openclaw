@@ -2452,7 +2452,11 @@ describe("gateway healthHandlers.status scope handling", () => {
         req: {} as never,
         params,
         respond: respond as never,
-        context: {} as never,
+        context: {
+          cron: { getSuspensionBlockerCount: () => 0 },
+          chatAbortControllers: new Map(),
+          chatQueuedTurns: new Map(),
+        } as never,
         client: { connect: { role: "operator", scopes } } as never,
         isWebchatConnect: () => false,
       },

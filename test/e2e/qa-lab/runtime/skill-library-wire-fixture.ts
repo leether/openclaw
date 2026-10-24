@@ -11,6 +11,7 @@ import {
   createOpenClawTestInstance,
   type OpenClawTestInstance,
 } from "../../../helpers/openclaw-test-instance.js";
+import { SkillLibraryWireError } from "./skill-library-node-admission-diagnostics.js";
 
 export const SKILL_LIBRARY_ALICE = "alice@skills.example.invalid";
 export const SKILL_LIBRARY_BOB = "bob@skills.example.invalid";
@@ -28,16 +29,11 @@ export function decodedSkillLibraryFiles(files: SkillLibraryFile[]) {
     .toSorted((a, b) => a.path.localeCompare(b.path));
 }
 
-class SkillLibraryWireError extends Error {
-  constructor(readonly error: NonNullable<ResponseFrame["error"]>) {
-    super(error.message);
-  }
-}
-
 export class SkillLibraryWireClient {
   private readonly pending = new Map<
     string,
     {
+      method: string;
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
@@ -61,7 +57,7 @@ export class SkillLibraryWireClient {
       } else {
         pending.reject(
           frame.error
-            ? new SkillLibraryWireError(frame.error)
+            ? new SkillLibraryWireError(frame.error, pending.method)
             : new Error("RPC failed without an error"),
         );
       }
@@ -158,7 +154,7 @@ export class SkillLibraryWireClient {
         this.pending.delete(id);
         reject(new Error(`${method} timed out`));
       }, timeoutMs);
-      this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
+      this.pending.set(id, { method, resolve: (value) => resolve(value as T), reject, timer });
       this.socket.send(
         JSON.stringify({
           type: "req",

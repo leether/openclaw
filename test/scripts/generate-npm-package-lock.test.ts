@@ -27,11 +27,83 @@ import {
   shouldUseLegacyPeerDepsForNpmLock,
   npmLockPackageDirsForChangedPaths,
 } from "../../scripts/generate-npm-package-lock.mts";
+import {
+  deriveBundledNpmArtifact,
+  NPM_BUNDLE_INTEGRITY,
+} from "../../scripts/lib/package-bundled-npm.mts";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const officialNpmFixtureDir = process.env.OPENCLAW_NPM_BUNDLE_OFFICIAL_FIXTURE_DIR;
 
 describe("generate-npm-package-lock", () => {
+  it.runIf(Boolean(officialNpmFixtureDir))(
+    "keeps official npm input identity distinct from its exact derived lock identity",
+    () => {
+      if (!officialNpmFixtureDir) {
+        throw new Error("official fixture directory required");
+      }
+      const inputs = {
+        npmTarball: readFileSync(path.join(officialNpmFixtureDir, "npm-12.2.1.tgz")),
+        undiciTarball: readFileSync(path.join(officialNpmFixtureDir, "undici-6.29.1.tgz")),
+      };
+      const derived = deriveBundledNpmArtifact(inputs);
+      const spec = "file:./artifacts/npm-derived.tgz";
+      const artifact = { name: "npm", version: "12.2.1", spec, integrity: derived.integrity };
+      const packages = {
+        "node_modules/npm": { version: "12.2.1", integrity: derived.integrity, resolved: spec },
+        "node_modules/npm/node_modules/undici": { version: "6.29.1", inBundle: true },
+      };
+      const pins = new Set(["npm@12.2.1"]);
+      const hashes = new Map<string, Set<string>>([
+        ["npm@12.2.1", new Set([NPM_BUNDLE_INTEGRITY])],
+      ]);
+      const check = (
+        lock = { packages },
+        tarball = derived.tarball,
+        sourceHashes = hashes,
+        sourceInputs = inputs,
+      ) => collectPnpmLockViolations(lock, pins, sourceHashes, [artifact], tarball, sourceInputs);
+      expect(check()).toEqual([]);
+      expect(derived.integrity).not.toBe(NPM_BUNDLE_INTEGRITY);
+      expect(() =>
+        check(
+          { packages },
+          derived.tarball,
+          new Map([["npm@12.2.1", new Set([derived.integrity])]]),
+        ),
+      ).toThrow("official npm@12.2.1");
+      expect(() =>
+        check({ packages }, Buffer.concat([derived.tarball, Buffer.from("changed")])),
+      ).toThrow();
+      expect(() =>
+        check({ packages }, derived.tarball, hashes, {
+          ...inputs,
+          npmTarball: inputs.undiciTarball,
+        }),
+      ).toThrow();
+      expect(() =>
+        check({
+          packages: {
+            ...packages,
+            "node_modules/npm": {
+              ...packages["node_modules/npm"],
+              integrity: NPM_BUNDLE_INTEGRITY,
+            },
+          },
+        }),
+      ).toThrow("integrity");
+      expect(
+        check({
+          packages: {
+            ...packages,
+            "node_modules/npm/node_modules/undici": { version: "6.29.0", inBundle: true },
+          },
+        }),
+      ).toEqual([{ path: "node_modules/npm/node_modules/undici", packageKey: "undici@6.29.0" }]);
+    },
+  );
+
   function repoRelativePath(value: string): string {
     return path.relative(process.cwd(), value).replaceAll("\\", "/");
   }

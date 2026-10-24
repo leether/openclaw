@@ -1,0 +1,31 @@
+{
+  "schema": "discord-derived-probes-v1",
+  "baseCommit": "4fef808feead41ee72cd81d577419150c9ee2adf",
+  "license": "LICENSE.md",
+  "sdkTargetManifestChanged": false,
+  "historicalEvidenceReusedAsCurrentProof": false,
+  "files": [
+    {
+      "path": "compat.mjs",
+      "originalDeliverySha256": "239a5461ac7ca987e8ac411828af8d8b6a3386fcbc0a62ed1d9c04a2905c88fe",
+      "product4fefSha256": "b63d4c06eb2a12ff7c37c53f3cc87cf5478c7a1dd0ec6240ab36aa7ff902196d",
+      "sha256": "607c790acbff1de0fa6038098148bc02c2e6e23aceb8b215e85dc6237f994214",
+      "bytes": 12377,
+      "changes": [
+        "Braces and const bindings preserve the original 86 compatibility assertions.",
+        "The synthetic Error with code 4000 case is retained; additional real installed SDK sendCommand ERROR-frame rejection reaches the native setOrientationLockState compatibility fallback as an unchanged plain object.",
+        "The additional native path requires exact primary/fallback arguments, distinct nonces, one rejection, two commands, no pending commands and listener cleanup; both formats and installed/restored packages must execute these new bytes."
+      ]
+    },
+    {
+      "path": "error-contract.mjs",
+      "originalDeliverySha256": "b7fdbd4d11a248dba184afe998ec1fc10aba7918cf1b8a4bdbedceefb0f2e319",
+      "product4fefSha256": "8027dfb2e371ab77570cc488fabec353d1958adb9e4505f377b100ec8765f86a",
+      "sha256": "722f7a8e6f4ff32e6c3da3b5d78f99728e2f63257c39a7807b1b35e46f15638b",
+      "bytes": 3920,
+      "changes": [
+        "Braces only; all error/default/path assertions remain unchanged."
+      ]
+    }
+  ]
+}

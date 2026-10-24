@@ -13,6 +13,8 @@ const ALLOWED_PATCHED_DEPENDENCIES = new Map([
   ["@a2ui/web_core@0.11.0", "patches/@a2ui__web_core@0.11.0.patch"],
   ["@a2ui/lit@0.11.0", "patches/@a2ui__lit@0.11.0.patch"],
   ["@discord/embedded-app-sdk@2.5.0", "patches/@discord__embedded-app-sdk@2.5.0.patch"],
+  ["@azure/identity@4.13.3", "patches/@azure__identity@4.13.3.patch"],
+  ["@microsoft/teams.apps@2.1.0", "patches/@microsoft__teams.apps@2.1.0.patch"],
   ["@openclaw/proxyline@0.3.12", "patches/@openclaw__proxyline@0.3.12.patch"],
   ["chrome-devtools-mcp@1.10.1", "patches/chrome-devtools-mcp@1.10.1.patch"],
   ["@awesome.me/webawesome@3.13.0", "patches/@awesome.me__webawesome@3.13.0.patch"],

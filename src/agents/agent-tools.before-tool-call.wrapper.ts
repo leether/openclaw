@@ -88,6 +88,7 @@ import {
   appendToolLoopWarning,
   attachInternalToolExecutionPreparer,
 } from "./runtime/internal-hooks.js";
+import { captureTimerToolExecution } from "./timer-execution-budget.js";
 import { buildToolMutationState } from "./tool-mutation.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 import {
@@ -276,6 +277,7 @@ export function wrapToolWithBeforeToolCallHook(
   const toolName = tool.name || "tool";
   const toolOwnerPluginId = getPluginToolMeta(tool)?.pluginId;
   const admitExecution = captureAgentToolExecutionBudget();
+  const timerExecution = captureTimerToolExecution();
   const diagnosticIdentity = resolveToolDiagnosticIdentity(tool);
   const hookOptions: BeforeToolCallDiagnosticOptions = {
     ...options,
@@ -460,6 +462,7 @@ export function wrapToolWithBeforeToolCallHook(
         });
         // Hooks can repair or rewrite arguments; only the final execution
         // shape is safe to validate, after vetoes but before side effects.
+        executeParams = timerExecution.normalizeParams(toolName, executeParams);
         await validateToolExecutionParams(toolCallId, executeParams);
         await reconcileLoopCallExecutionParams({
           ctx,
@@ -512,8 +515,18 @@ export function wrapToolWithBeforeToolCallHook(
       try {
         let result: Awaited<ReturnType<ForwardedToolExecution>>;
         try {
-          const args = [toolCallId, executeParams, signal, onUpdate, ...executionArgs];
-          const invoke = () => liveness.run(() => (execute as ForwardedToolExecution)(...args));
+          const invoke = () =>
+            timerExecution.execute(toolName, signal, (toolSignal) =>
+              liveness.run(() =>
+                (execute as ForwardedToolExecution)(
+                  toolCallId,
+                  executeParams,
+                  toolSignal,
+                  onUpdate,
+                  ...executionArgs,
+                ),
+              ),
+            );
           result = outcome.ownerDecision
             ? await invoke()
             : await runWithGenericToolActionDecision(tool, toolCallId, invoke);

@@ -1,7 +1,9 @@
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { recordStartupRecoveryStoreResult } from "../../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
 import { setPreparedModelRuntimeStartupStatus } from "../../agents/prepared-model-runtime.startup-status.js";
+import { captureTimerToolExecution } from "../../agents/timer-execution-budget.js";
 import { createGatewayHostLifecycle } from "../../cli/gateway-cli/host-lifecycle.js";
 import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -89,6 +91,45 @@ function createHealthReader(
 }
 
 describe("Gateway status owner routing", () => {
+  it("reports process-pinned capabilities and actual unsettled tool work", async () => {
+    await withStateDirEnv("openclaw-timer-drain-status-", async ({ stateDir }) => {
+      const config = {
+        agents: { entries: { main: {} } },
+        session: { store: path.join(stateDir, "sessions.json") },
+      };
+      const release = createDeferred();
+      const started = createDeferred();
+      const pending = captureTimerToolExecution().execute("fixture", undefined, async () => {
+        started.resolve();
+        await release.promise;
+      });
+      await started.promise;
+      try {
+        const response = await callStatus(config);
+        const payload = response.mock.calls[0]?.[1];
+        expect(payload.timerBudget).toMatchObject({
+          protocol: "timer-budget-v1",
+          maxRemainingMs: 480000,
+        });
+        expect(payload.executionDrain).toMatchObject({
+          protocol: "tool-drain-v1",
+          idle: false,
+          ownerEpoch: payload.timerBudget.ownerEpoch,
+          counts: { actualToolExecutions: 1 },
+        });
+        expect(Number.isFinite(Date.parse(payload.executionDrain.sampledAt))).toBe(true);
+        release.resolve();
+        await pending;
+        const after = (await callStatus(config)).mock.calls[0]?.[1];
+        expect(after.executionDrain.counts.actualToolExecutions).toBe(0);
+        expect(after.executionDrain.ownerEpoch).toBe(payload.executionDrain.ownerEpoch);
+      } finally {
+        release.resolve();
+        await pending;
+      }
+    });
+  });
+
   it("reports only the current host's recorded shutdown budget and resident PID", async () => {
     await withStateDirEnv("openclaw-gateway-budget-status-", async ({ stateDir }) => {
       const config = {

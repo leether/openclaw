@@ -35,10 +35,10 @@ index fdae5f676093da44a9904ebcf3aaee33d14a4a24..3229ecaecbc06de2199f9cc079ca3653
 +SOFTWARE.
 diff --git a/OPENCLAW_PATCH_NOTICE.md b/OPENCLAW_PATCH_NOTICE.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..383c73a7003ced3b12da638ed5a01453c0ceaa56
+index 0000000000000000000000000000000000000000..9c0a0401313c949d374bdda0260b82d9352dde2c
 --- /dev/null
 +++ b/OPENCLAW_PATCH_NOTICE.md
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,19 @@
 +# OpenClaw local patch notice
 +
 +This package is a patched derivative of the official `@discord/embedded-app-sdk@2.5.0`, not the unmodified Discord release. Its version string remains 2.5.0; identify the derivative by the applied patch and package manifests.
@@ -52,6 +52,12 @@ index 0000000000000000000000000000000000000000..383c73a7003ced3b12da638ed5a01453
 +The owner-source migration rebuilds the package with exact Zod 4.6.6, replacing the embedded Zod 3 implementation. It preserves the tested enum fallback, command validation, generic declarations, and message/nonce terminal behavior. Zod diagnostic text/code and schema types can differ; this notice is not a claim of universal API compatibility. The existing Discord MIT notice and the exact Zod 4.6.6 MIT notice are included together in `LICENSE.md`.
 +
 +Remove this downstream patch only after an official upstream SDK or separately governed replacement provides the same embedded-parser correction, its real dependency graph and complete installed output pass the relevant consumer/security/Linux install-and-restore checks, and patch retirement is explicitly recorded. Reverting to the unpatched official package restores the old embedded-parser behavior and is not a security-equivalent rollback.
++
++## Packaging metadata overlay
++
++The downstream package manifest declares `dependencies.uuid` as exact `14.0.2` instead of upstream `^11.0.0`. OpenClaw's official baseline `383c124cc32ffee3f8e56f549b88da94d269a4af` already resolved this dependency to 14.0.2 through its existing global override; this overlay makes the independently packaged SDK's declaration match that resolved dependency. It does not change the global override or substitute a different UUID runtime.
++
++All 227 `output/**` files remain byte-for-byte identical to the reviewed Zod 4.6.6 carrier. The SDK's generated modules retain their existing embedded UUID implementation. The TypeScript migration patch identified above is unchanged; its historical `uuid` declaration remains the source-build input, while this separate metadata overlay applies to the final package. Only `package.json` and this notice change. Fresh package install, dependency-tree validity, real SDK consumer behavior, and Linux installed/restored qualification remain required; prior carrier results alone do not qualify the new manifest.
 diff --git a/output/Discord.d.ts b/output/Discord.d.ts
 index 81126e93a621ad9be4b4ae90c1b1b9c1693ded57..9b1d593590697699a836be616cbe93d0bac2c875 100644
 --- a/output/Discord.d.ts
@@ -39540,7 +39546,7 @@ index 7d6c8d2a2f70e776fc532375d552a07dd0ceda39..de155f4b4c5300f283bffd3a84ab56a9
  
  export { fallbackToDefault, zodCoerceUnhandledValue };
 diff --git a/package.json b/package.json
-index 347a7c428afda8aafe5df51643a5d14350ba56ff..2264301e8bd8209866f0da25f4c1c1a9690bb9df 100644
+index 347a7c428afda8aafe5df51643a5d14350ba56ff..b3e2e347cdb44ffa1d144e700868b8fc5a5dec41 100644
 --- a/package.json
 +++ b/package.json
 @@ -38,7 +38,8 @@
@@ -39553,11 +39559,13 @@ index 347a7c428afda8aafe5df51643a5d14350ba56ff..2264301e8bd8209866f0da25f4c1c1a9
    ],
    "dependencies": {
      "@types/lodash.transform": "^4.6.6",
-@@ -48,7 +49,7 @@
+@@ -47,8 +48,8 @@
+     "decimal.js-light": "^2.5.0",
      "eventemitter3": "^5.0.0",
      "lodash.transform": "^4.6.0",
-     "uuid": "^11.0.0",
+-    "uuid": "^11.0.0",
 -    "zod": "^3.9.8"
++    "uuid": "14.0.2",
 +    "zod": "4.6.6"
    },
    "devDependencies": {

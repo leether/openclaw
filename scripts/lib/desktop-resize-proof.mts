@@ -3,6 +3,8 @@ import { lstat, mkdir, open, readFile, readdir, stat as fsStat, writeFile } from
 import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { ErrorCodes } from "../../packages/gateway-protocol/src/gateway-error-details.js";
+import { isOperatorScope } from "../../src/gateway/operator-scopes.js";
 import { desktopGatewayReadiness } from "./desktop-readiness-proof.mts";
 
 export const desktopResizeStages = [
@@ -48,6 +50,7 @@ const failureSourceFiles = [
   "ui/src/test-helpers/control-ui-e2e-readiness.ts",
   "test/e2e/qa-lab/runtime/skill-library-node-process.ts",
   "test/e2e/qa-lab/runtime/skill-library-wire-fixture.ts",
+  "test/e2e/qa-lab/runtime/skill-library-node-admission-diagnostics.ts",
   "test/e2e/qa-lab/runtime/cloud-worker-midturn-loss-fixture.ts",
   "test/helpers/openclaw-test-instance.ts",
 ];
@@ -217,6 +220,41 @@ function diagnosticEnum<const T extends readonly string[]>(value: unknown, value
     throw new Error("Invalid desktop lifecycle category");
   }
   return found;
+}
+
+/** Rebuild only fixed public fields; the private RPC error and request identity stay private. */
+export function desktopNodeAdmissionFailure(value: unknown) {
+  if (
+    !isRecord(value) ||
+    (value.retryable !== null && typeof value.retryable !== "boolean") ||
+    (value.missingScope !== null && !isOperatorScope(value.missingScope))
+  ) {
+    throw new Error("Invalid desktop node admission diagnostic");
+  }
+  return {
+    stage: diagnosticEnum(value.stage, [
+      "device-admission",
+      "command-approval",
+      "worker-inventory",
+    ] as const),
+    method: diagnosticEnum(value.method, [
+      "node.list",
+      "node.pair.list",
+      "node.pair.approve",
+      "other",
+    ] as const),
+    outcome: diagnosticEnum(value.outcome, ["rpc-error"] as const),
+    code: diagnosticEnum(value.code, [...Object.values(ErrorCodes), "other"] as const),
+    category: diagnosticEnum(value.category, [
+      "missing-scope",
+      "startup-unavailable",
+      "unknown-request-id",
+      "authenticated-profile-unavailable",
+      "other",
+    ] as const),
+    retryable: value.retryable,
+    missingScope: value.missingScope,
+  };
 }
 
 function desktopEndpointCloses(value: unknown) {
@@ -498,6 +536,13 @@ export function desktopProofTestReport(value: unknown) {
                 }),
             ...(test.status === "failed" && meta.desktopViewerResizeFailure !== undefined
               ? { viewerResize: desktopViewerResizeFailure(meta.desktopViewerResizeFailure) }
+              : {}),
+            ...(test.status === "failed" && meta.desktopNodeAdmissionFailure !== undefined
+              ? {
+                  nodeAdmissionFailure: desktopNodeAdmissionFailure(
+                    meta.desktopNodeAdmissionFailure,
+                  ),
+                }
               : {}),
           };
         }),

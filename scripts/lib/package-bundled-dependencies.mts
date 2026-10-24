@@ -9,7 +9,9 @@ import {
   PATCHED_MCP_CLI,
   PATCHED_MCP_NAME,
 } from "./package-bundled-mcp.mts";
+import { verifyBundledNpmPackageFiles } from "./package-bundled-npm.mts";
 import { collectPackageDistImportErrors } from "./package-dist-imports.mjs";
+import { readNpmRuntimeFiles, usesNpmRuntimeDerivation } from "./package-npm-runtime.mts";
 import { isRecord } from "./record-shared.mjs";
 
 type BundledPackage = {
@@ -196,6 +198,17 @@ export function collectBundledDependencyErrors({
   const required = new Map<string, string>([
     [PATCHED_MCP_NAME, "its patched runtime must not be replaced by the registry package"],
   ]);
+  let derivedNpm = false;
+  try {
+    derivedNpm = usesNpmRuntimeDerivation(packageJson);
+  } catch (error) {
+    // This collector reports errors; throwing would let a caller's permissive
+    // metadata parser bypass the remaining bundled-dependency checks.
+    errors.push(`invalid bundled npm derivation contract: ${coerceErrorMessage(error)}`);
+  }
+  if (derivedNpm) {
+    required.set("npm", "its exact bundled Undici derivative must survive installation");
+  }
   if (requireBundledWorkspaceDeps) {
     required.set("@openclaw/ai", "it is private to the OpenClaw workspace");
   }
@@ -251,6 +264,16 @@ export function collectBundledDependencyErrors({
     const bundled = { ...runtime, name };
     if (name === PATCHED_MCP_NAME) {
       errors.push(...collectPatchedMcpErrors(bundled, manifest, dependencies[PATCHED_MCP_NAME]));
+    } else if (name === "npm" && derivedNpm) {
+      try {
+        verifyBundledNpmPackageFiles({
+          files: readNpmRuntimeFiles(path.join(runtime.packageRoot, "node_modules/npm")),
+        });
+      } catch (error) {
+        errors.push(
+          `bundled npm derivative differs from the reviewed file tree: ${coerceErrorMessage(error)}`,
+        );
+      }
     } else if (REQUIRED_BUNDLED_WORKSPACE_RUNTIME_ENTRIES.has(name)) {
       errors.push(...collectBundledPackageRuntimeErrors(bundled, manifest));
     }

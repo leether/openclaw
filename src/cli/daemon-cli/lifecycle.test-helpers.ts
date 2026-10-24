@@ -97,6 +97,8 @@ export function createDeferredSafeRestartResult(): SafeGatewayRestartRequestResu
     preflight: {
       safe: false,
       counts: {
+        actualToolExecutions: 0,
+        timerRequests: 0,
         queueSize: 1,
         pendingReplies: 0,
         embeddedRuns: 0,

@@ -4,6 +4,8 @@ export function inspectors(
   overrides: Partial<GatewayActiveWorkInspectors> = {},
 ): GatewayActiveWorkInspectors {
   return {
+    getActualToolExecutions: () => 0,
+    getTimerRequests: () => 0,
     getQueueSize: () => 0,
     getPendingReplies: () => 0,
     getEmbeddedRuns: () => 0,

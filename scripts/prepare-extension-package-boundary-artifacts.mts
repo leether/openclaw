@@ -7,6 +7,7 @@ import {
   resolveTimerTimeoutMs,
 } from "../packages/normalization-core/src/number-coercion.ts";
 import { ensureKyselyTypes } from "./generate-kysely-types.mts";
+import { createBoundaryDiagnostics } from "./lib/boundary-phase-diagnostics.mts";
 import {
   listCacheFiles,
   portableRelativePath,
@@ -114,6 +115,10 @@ export async function runNodeStep(
   if (params.abortController?.signal.aborted || nodeStepParentSignal) {
     throw new Error(`${label} canceled before starting`);
   }
+  const diagnostic = createBoundaryDiagnostics("preparation", label.split(" ")[0] ?? "other", {
+    env: params.env ?? process.env,
+  });
+  const compiled = diagnostic.start("compile");
   const resolvedTimeoutMs = resolveTimerTimeoutMs(timeoutMs, MAX_TIMER_TIMEOUT_MS);
   const stdoutWriter = createPrefixedOutputWriter(label, process.stdout, params.onStdoutLine);
   const stderrWriter = createPrefixedOutputWriter(label, process.stderr);
@@ -137,6 +142,7 @@ export async function runNodeStep(
       nodeStepParentSignal ??= signal;
     },
     onReady(child) {
+      diagnostic.mark("compile", "info", child.pid ? { childPid: child.pid } : {});
       // This invocation explicitly requests both output pipes above.
       child.stdout!.setEncoding("utf8");
       child.stderr!.setEncoding("utf8");
@@ -150,7 +156,9 @@ export async function runNodeStep(
     if (code !== 0) {
       throw new Error(`${label} failed with exit code ${code}`);
     }
+    compiled({ exitCode: code });
   } catch (error) {
+    diagnostic.mark("compile", "failed");
     const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
     const failure =
       code === "ETIMEDOUT"
@@ -242,8 +250,12 @@ export async function runNodeSteps(steps: NodeStep[], env: NodeJS.ProcessEnv = p
 }
 
 async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process.argv.slice(2)) {
+  const diagnostic = createBoundaryDiagnostics("preparation", "preparation");
+  diagnostic.mark("resources", "info");
   const mode = parseMode(argv);
+  const kyselyDone = diagnostic.start("kysely");
   await ensureKyselyTypes(repoRoot);
+  kyselyDone();
   const selectedArgument = argv.find((arg) => arg.startsWith("--extensions="));
   let selected: string[] | undefined;
   let discoverPreparation: typeof resolveExtensionBoundaryPreparation | undefined;
@@ -261,7 +273,9 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
     selected = requested;
     ({ resolveExtensionBoundaryPreparation: discoverPreparation } =
       await import("./lib/extension-boundary-projects.mts"));
+    const discovered = diagnostic.start("discovery", { plugins: selected.length });
     preparation = await discoverPreparation(repoRoot, selected);
+    discovered({ roots: preparation.sdkRoots.length, plugins: preparation.pluginIds.length });
     process.stdout.write(
       `selected preparation: ${preparation.sdkRoots.length} SDK roots; plugin producers: ${preparation.pluginIds.join(", ") || "none"}\n`,
     );
@@ -283,6 +297,7 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
     );
     compilerEnv.GOMEMLIMIT ||= "8GiB";
   }
+  diagnostic.policy(compilerEnv);
   const compilerTimeoutMs = resolveTsgoTimeoutMs(compilerEnv);
   const sharedSdk = process.env.OPENCLAW_CI_SHARED_SDK === "1";
   const sdk = sdkBoundaryUnit(sharedSdk ? undefined : preparation?.sdkRoots);
@@ -314,12 +329,16 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
     const before = new BoundaryInputSnapshot(repoRoot);
     const pending = batch
       .map((unit) => {
+        const unitDiagnostic = createBoundaryDiagnostics("preparation", unit.id);
+        const snapshotDone = unitDiagnostic.start("input-snapshot");
         const recordPath = resolve(repoRoot, BOUNDARY_CACHE_ROOT, `${unit.id}.json`);
         const inputReceipt = `${unit.outDir}/.inputs.json`;
         const args = boundaryPreparationArgs(repoRoot, unit);
         const previous = readArtifactRecord(recordPath);
         // Prime config/toolchain/topology before starting even an uncached owner.
         before.signature(unit.config, args, [], unit.outputRoot);
+        snapshotDone();
+        const freshnessDone = unitDiagnostic.start("freshness");
         if (
           // A valid full receipt can cover a narrower request; the reverse never applies.
           [
@@ -338,9 +357,11 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
             ),
           )
         ) {
+          freshnessDone({ fresh: 1 });
           process.stdout.write(`[${unit.id} boundary dts] fresh; skipping\n`);
           return null;
         }
+        freshnessDone({ fresh: 0 });
         fs.rmSync(recordPath, { force: true });
         // Every stale owner emits its complete requested graph, never surviving cache files.
         // Output directories stay intact until a successful complete inventory exists.
@@ -376,6 +397,9 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
     const after = new BoundaryInputSnapshot(repoRoot);
     // Join and validate every owner before publishing any success in this batch.
     const completed = pending.map((unit) => {
+      const validated = createBoundaryDiagnostics("preparation", unit.id).start(
+        "receipt-validation",
+      );
       const outputs = [...unit.outputs].toSorted();
       if (
         [...unit.required, unit.inputReceipt].some((file) => !unit.outputs.has(file)) ||
@@ -392,9 +416,11 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
         unit.startedAt,
         unit.outputRoot,
       );
+      validated({ outputs: outputs.length });
       return Object.assign(unit, { record });
     });
     for (const unit of completed) {
+      const published = createBoundaryDiagnostics("preparation", unit.id).start("publication");
       // Surviving files are cleanup candidates, never evidence of successful emit.
       for (const file of listCacheFiles(
         repoRoot,
@@ -407,6 +433,7 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
       }
       fs.rmSync(resolve(repoRoot, unit.outDir, ".tsbuildinfo"), { force: true });
       writeArtifactRecord(unit.recordPath, unit.record);
+      published({ outputs: unit.outputs.size });
       process.stdout.write(`[${unit.id} boundary dts] emitted ${unit.outputs.size} files\n`);
     }
   };
@@ -421,9 +448,11 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
     await prepareBatch([sdkUnit]);
     // Only admitted SDK output may reveal declaration-only producer edges. Expand
     // their SDK inputs before compiling any producer or selected package.
+    const rediscovered = diagnostic.start("discovery");
     const discovered = await discoverPreparation!(repoRoot, selected!, {
       preparedSdk: true,
     });
+    rediscovered({ roots: discovered.sdkRoots.length, plugins: discovered.pluginIds.length });
     if (sharedSdk) {
       if (discovered.sdkRoots.length) {
         throw new Error(
@@ -452,5 +481,12 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
 
 if (isDirectRunUrl(process.argv[1], import.meta.url)) {
   // The private entry must observe cleanup metadata before releasing its claim.
-  await withDistArtifactOwnership(repoRoot, () => prepareExtensionPackageBoundaryArtifacts());
+  const diagnostic = createBoundaryDiagnostics("preparation", "preparation");
+  const owned = diagnostic.start("entry-ownership");
+  await withDistArtifactOwnership(repoRoot, async () => {
+    const prepared = diagnostic.start("preparation-callback");
+    await prepareExtensionPackageBoundaryArtifacts();
+    prepared();
+  });
+  owned();
 }

@@ -1,5 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it } from "vitest";
+import { createDeferred, withinTest } from "../../test/helpers/promise.js";
 import { applyCodeModeCatalog, runCodeModeScriptHeadless } from "./code-mode.js";
 import {
   createCodeModeHarness,
@@ -14,6 +15,7 @@ import {
   testing,
   waitUntilCompleted,
 } from "./code-mode.test-support.js";
+import { getActualToolExecutionCount } from "./timer-execution-budget.js";
 import { addClientToolsToToolCatalog } from "./tool-search-catalog.js";
 import { jsonResult, type AnyAgentTool } from "./tools/common.js";
 
@@ -204,25 +206,25 @@ describe("Code Mode output provenance", () => {
     expect(fixture.execute).toHaveBeenCalledTimes(2);
   });
 
-  it("reports only unsettled calls without replaying clipped output", async () => {
+  it("reports only unsettled calls without replaying clipped output", async ({ signal }) => {
     const { ctx, tools: codeModeTools } = createCodeModeHarness({
       codeMode: { timeoutMs: 500, maxOutputBytes: 1024 },
     });
+    const sourceResult = jsonResult({ ok: true });
+    const source = createDeferred<typeof sourceResult>();
+    const caller = new AbortController();
+    const calls: Promise<unknown>[] = [];
     applyCodeModeCatalog({
       tools: [
         ...codeModeTools,
         pluginTool("fake_fast", "Fast helper"),
-        pluginToolWithExecute(
-          "fake_slow",
-          "Slow helper",
-          async () => await new Promise<never>(() => {}),
-        ),
+        pluginToolWithExecute("fake_slow", "Slow helper", async () => await source.promise),
       ],
       ...ctx,
     });
 
-    const first = resultDetails(
-      await expectDefined(codeModeTools[0], "codeModeTools[0] test invariant").execute(
+    try {
+      const execution = expectDefined(codeModeTools[0], "codeModeTools[0] test invariant").execute(
         "code-call-timeout",
         {
           code: `
@@ -234,33 +236,50 @@ describe("Code Mode output provenance", () => {
           return "done";
         `,
         },
-      ),
-    );
-    expect(first.status).toBe("waiting");
-    expectOriginalCodeModeMarker((first.output as unknown[])[0], [
-      { type: "text", text: "before timeout".repeat(200) },
-    ]);
-    // The fast call may settle as the snapshot is parked, but the slow call must remain pending.
-    expect(first.pendingToolCalls).toContainEqual(
-      expect.objectContaining({ id: "bridge:callValue:2", method: "callValue" }),
-    );
-    expect(first.runId).toEqual(expect.any(String));
-    const runId = String(first.runId);
+        caller.signal,
+      );
+      calls.push(execution);
+      const first = resultDetails(await withinTest(execution, signal));
+      expect(first.status).toBe("waiting");
+      expectOriginalCodeModeMarker((first.output as unknown[])[0], [
+        { type: "text", text: "before timeout".repeat(200) },
+      ]);
+      // The fast call may settle as the snapshot is parked, but the slow call must remain pending.
+      expect(first.pendingToolCalls).toContainEqual(
+        expect.objectContaining({ id: "bridge:callValue:2", method: "callValue" }),
+      );
+      expect(first.runId).toEqual(expect.any(String));
+      const runId = String(first.runId);
 
-    const activeRun = testing.activeRuns.get(runId);
-    expect(activeRun).toBeDefined();
-    activeRun!.config.timeoutMs = 100;
+      const activeRun = testing.activeRuns.get(runId);
+      expect(activeRun).toBeDefined();
+      activeRun!.config.timeoutMs = 100;
 
-    const second = resultDetails(
-      await expectDefined(codeModeTools[1], "codeModeTools[1] test invariant").execute(
+      const waiting = expectDefined(codeModeTools[1], "codeModeTools[1] test invariant").execute(
         "code-wait-timeout",
         { runId },
-      ),
-    );
+        caller.signal,
+      );
+      calls.push(waiting);
+      const second = resultDetails(await withinTest(waiting, signal));
 
-    expect(second.status).toBe("waiting");
-    expect(second.output).toEqual([]);
-    expect(second.pendingToolCalls).toEqual([expect.objectContaining({ method: "callValue" })]);
+      expect(second.status).toBe("waiting");
+      expect(second.output).toEqual([]);
+      expect(second.pendingToolCalls).toEqual([expect.objectContaining({ method: "callValue" })]);
+      expect(getActualToolExecutionCount()).toBe(1);
+    } finally {
+      caller.abort();
+      // A parked call has released its caller signal; close its owner before the late result.
+      const closing = resetCodeModeTestState();
+      source.resolve(sourceResult);
+      const joined = Promise.allSettled([source.promise, ...calls]);
+      try {
+        await closing;
+      } finally {
+        await joined;
+        await expect.poll(getActualToolExecutionCount).toBe(0);
+      }
+    }
   });
 });
 

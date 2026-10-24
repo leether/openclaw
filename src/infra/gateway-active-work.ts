@@ -4,6 +4,10 @@ import { getActiveAcpTurnCount } from "../acp/control-plane/active-turns.js";
 import { getActiveBackgroundExecSessionCount } from "../agents/bash-process-registry.js";
 import { getActiveEmbeddedRunCount } from "../agents/embedded-agent-runner/active-run-projections.js";
 import { getActiveMediaGenerationRunCount } from "../agents/media-generation-activity.js";
+import {
+  getActualToolExecutionCount,
+  getTimerRequestCount,
+} from "../agents/timer-execution-budget.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
 import { getActiveCronJobCount } from "../cron/active-jobs.js";
 import { getSuspensionVisibleCronTaskRunCount } from "../cron/service/active-run-cancellation.js";
@@ -20,6 +24,8 @@ import { getActiveAgentRunContextCount } from "./agent-run-registry.js";
 import { readLifecycleWriteCustody } from "./lifecycle-write-custody.js";
 
 type GatewayActiveWorkCounts = {
+  actualToolExecutions: number;
+  timerRequests: number;
   queueSize: number;
   pendingReplies: number;
   embeddedRuns: number;
@@ -42,6 +48,8 @@ type GatewayActiveWorkCounts = {
 
 export type GatewayActiveWorkBlocker = {
   kind:
+    | "tool-execution"
+    | "timer-request"
     | "queue"
     | "reply"
     | "embedded-run"
@@ -74,6 +82,8 @@ type GatewayActiveWorkWaitResult = {
 };
 
 export type GatewayActiveWorkInspectors = {
+  getActualToolExecutions: () => number;
+  getTimerRequests: () => number;
   getQueueSize: () => number;
   getPendingReplies: () => number;
   getEmbeddedRuns: () => number;
@@ -93,6 +103,8 @@ export type GatewayActiveWorkInspectors = {
 };
 
 const defaultInspectors: GatewayActiveWorkInspectors = {
+  getActualToolExecutions: getActualToolExecutionCount,
+  getTimerRequests: getTimerRequestCount,
   getQueueSize: getTotalQueueSize,
   getPendingReplies: getTotalPendingReplies,
   getEmbeddedRuns: getActiveEmbeddedRunCount,
@@ -144,6 +156,8 @@ export function createGatewayActiveWorkSnapshot(
   const resolved = { ...defaultInspectors, ...inspectors };
   const maintenance = readGatewayMaintenanceWork(inspectors);
   const counts: GatewayActiveWorkCounts = {
+    actualToolExecutions: normalizeCount(resolved.getActualToolExecutions()),
+    timerRequests: normalizeCount(resolved.getTimerRequests()),
     queueSize: normalizeCount(resolved.getQueueSize()),
     pendingReplies: normalizeCount(resolved.getPendingReplies()),
     embeddedRuns: normalizeCount(resolved.getEmbeddedRuns()),
@@ -168,6 +182,12 @@ export function createGatewayActiveWorkSnapshot(
       blockers.push({ kind, count, message: `${count} ${message}` });
     }
   };
+  add(
+    counts.actualToolExecutions,
+    "tool-execution",
+    "actual tool execution(s) awaiting settlement",
+  );
+  add(counts.timerRequests, "timer-request", "timer request(s) awaiting settlement");
   add(counts.queueSize, "queue", "queued or active operation(s)");
   add(counts.pendingReplies, "reply", "pending reply delivery operation(s)");
   add(counts.embeddedRuns, "embedded-run", "active embedded run(s)");

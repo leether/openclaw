@@ -58,6 +58,8 @@ describe("safe gateway restart coordinator", () => {
     expect(preflight).toEqual({
       safe: true,
       counts: {
+        actualToolExecutions: 0,
+        timerRequests: 0,
         queueSize: 0,
         pendingReplies: 0,
         embeddedRuns: 0,
@@ -72,6 +74,19 @@ describe("safe gateway restart coordinator", () => {
       blockers: [],
       summary: "safe to restart now",
     });
+  });
+
+  it("blocks restart while actual tools or budgeted requests have not settled", () => {
+    const preflight = requestPreflight({
+      getActualToolExecutions: () => 1,
+      getTimerRequests: () => 1,
+    });
+    expect(preflight.safe).toBe(false);
+    expect(preflight.counts.totalActive).toBe(2);
+    expect(preflight.blockers.map((blocker) => blocker.kind)).toEqual([
+      "tool-execution",
+      "timer-request",
+    ]);
   });
 
   it("returns structured blockers for active work", () => {

@@ -1,0 +1,178 @@
+name: Fork Linux Package
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Qualify a frozen source or only export a normally resolved lock candidate
+        type: choice
+        options: [qualify, resolve-lock]
+        default: qualify
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-linux-package-${{ github.event.pull_request.number || github.ref }}-${{ inputs.mode || 'qualify' }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    if: github.repository == 'leether/openclaw' && inputs.mode != 'resolve-lock' && (github.event_name != 'pull_request' || (!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CI: "true"
+      NODE_OPTIONS: --max-old-space-size=6144
+      OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB: "6144"
+      GOMAXPROCS: "2"
+      GOGC: "30"
+      GOMEMLIMIT: 3GiB
+      QUALIFIED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      FORK_ARTIFACT_DIR: ${{ github.workspace }}/.artifacts/fork-linux-package
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.QUALIFIED_SHA }}
+          persist-credentials: false
+      - name: Set isolated runtime paths
+        shell: bash
+        run: |
+          printf 'FORK_RUNTIME_DIR=%s/fork-linux-runtime\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'FORK_NODE_ROOT=%s/fork-node-runtimes\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Verify official Node inputs
+        shell: bash
+        run: bash scripts/fork-linux/verify-node.sh
+      - name: Set up the repository toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.22.1"
+          install-deps: "false"
+          install-bun: "true"
+          cache-mode: "off"
+          semantic-checks: "true"
+      - name: Build and qualify the complete Linux package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$QUALIFIED_SHA"
+          cmp "$(command -v node)" "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node"
+          unit="fork-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.scope"
+          python3 scripts/fork-linux/scope-diagnostics.py "$unit" "$RUNNER_TEMP/fork-linux-resource-scope.json" &
+          monitor_pid=$!
+          trap 'kill -TERM "$monitor_pid" 2>/dev/null || true; wait "$monitor_pid" || true' EXIT
+          systemd-run --user --scope --unit="$unit" --collect --quiet --expand-environment=no \
+            --property=MemoryMax=10G --property=MemorySwapMax=0 \
+            --property=TasksMax=512 --property=OOMPolicy=kill \
+            --property=RuntimeMaxSec=6600 -- \
+            bash scripts/fork-linux/qualify-package.sh
+      - name: Reconcile exact Canvas policy after qualification exit
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner_file="$FORK_ARTIFACT_DIR/canvas-sandbox-owner.txt"
+          if [[ -s "$owner_file" ]] && ! node -e 'const fs=require("node:fs"); try { if(JSON.parse(fs.readFileSync(process.argv[1])).passed !== true) process.exit(1); } catch { process.exit(1); }' "$FORK_ARTIFACT_DIR/canvas-sandbox-retirement.json"; then
+            IFS= read -r owner < "$owner_file"
+            python3 scripts/fork-linux/bounded-command.py 20 sudo -n python3 \
+              scripts/fork-linux/canvas-sandbox.py retire "$owner" \
+              > "$FORK_ARTIFACT_DIR/canvas-sandbox-workflow-retirement.json"
+          fi
+      - name: Upload qualified package and offline runtime
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fork-linux-package-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
+          # The private verifier consumes these four sealed inputs. Browser profile
+          # caches must not expand its bounded archive inventory.
+          path: |
+            ${{ env.FORK_ARTIFACT_DIR }}/qualification.json
+            ${{ env.FORK_ARTIFACT_DIR }}/openclaw-linux-x64-runtime.tar.gz
+            ${{ env.FORK_ARTIFACT_DIR }}/node-verification/node-v24.22.0-linux-x64.tar.xz
+            ${{ env.FORK_ARTIFACT_DIR }}/node-verification/node-v24.22.1-linux-x64.tar.xz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 90
+      - name: Preserve bounded synthetic diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fork-linux-diagnostics-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.FORK_ARTIFACT_DIR }}
+            ${{ runner.temp }}/fork-linux-resource-scope.json
+            ${{ runner.temp }}/fork-http-synthetic-*/report.json
+            ${{ runner.temp }}/fork-http-synthetic-*/process.log
+            ${{ runner.temp }}/fork-http-synthetic-*/gateway.log
+            ${{ runner.temp }}/fork-restored-http-synthetic-*/report.json
+            ${{ runner.temp }}/fork-restored-http-synthetic-*/process.log
+            ${{ runner.temp }}/fork-restored-http-synthetic-*/gateway.log
+            !${{ env.FORK_ARTIFACT_DIR }}/qualification.json
+            !${{ env.FORK_ARTIFACT_DIR }}/openclaw-linux-x64-runtime.tar.gz
+            !${{ env.FORK_ARTIFACT_DIR }}/node-verification/node-v24.22.0-linux-x64.tar.xz
+            !${{ env.FORK_ARTIFACT_DIR }}/node-verification/node-v24.22.1-linux-x64.tar.xz
+          if-no-files-found: ignore
+          retention-days: 90
+  resolve-lock:
+    if: github.repository == 'leether/openclaw' && github.event_name == 'workflow_dispatch' && inputs.mode == 'resolve-lock'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      QUALIFIED_SHA: ${{ github.sha }}
+      FORK_ARTIFACT_DIR: ${{ github.workspace }}/.artifacts/fork-lock-candidate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.QUALIFIED_SHA }}
+          persist-credentials: false
+      - name: Set isolated verifier path
+        shell: bash
+        run: printf 'FORK_NODE_ROOT=%s/fork-lock-node-runtimes\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Verify official Node inputs
+        run: bash scripts/fork-linux/verify-node.sh
+      - name: Set up the repository package manager without dependencies
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.22.1"
+          install-deps: "false"
+          install-bun: "false"
+          cache-mode: "off"
+          semantic-checks: "true"
+      - name: Resolve only the dependency lock under a bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$QUALIFIED_SHA"
+          cmp "$(command -v node)" "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node"
+          unit="fork-lock-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.scope"
+          set +e
+          systemd-run --user --scope --unit="$unit" --collect --quiet --expand-environment=no \
+            --property=MemoryMax=4G --property=MemorySwapMax=0 \
+            --property=TasksMax=256 --property=OOMPolicy=kill \
+            --property=RuntimeMaxSec=600 -- \
+            env FORK_LOCK_UNIT="$unit" python3 scripts/fork-linux/resolve-lock.py
+          scope_exit=$?
+          set -e
+          python3 scripts/fork-linux/resolve-lock.py --finalize "$unit" "$scope_exit"
+      - name: Preserve the bounded lock candidate and actual failure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fork-lock-candidate-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.FORK_ARTIFACT_DIR }}/resolution.json
+            ${{ env.FORK_ARTIFACT_DIR }}/resolver-result.json
+            ${{ env.FORK_ARTIFACT_DIR }}/scope-*.json
+            ${{ env.FORK_ARTIFACT_DIR }}/candidate-pnpm-lock.yaml
+            ${{ env.FORK_ARTIFACT_DIR }}/inputs-*.json
+            ${{ env.FORK_ARTIFACT_DIR }}/resolver.log
+            ${{ env.FORK_ARTIFACT_DIR }}/node-verification/signature-status.txt
+            ${{ env.FORK_ARTIFACT_DIR }}/node-verification/runtime-sha256.txt
+          if-no-files-found: error
+          retention-days: 90

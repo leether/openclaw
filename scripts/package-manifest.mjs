@@ -96,6 +96,8 @@ export async function preparePackageManifest(cwd = process.cwd()) {
   const bundles = packageJson.bundleDependencies ?? packageJson.bundledDependencies;
   let platformOptionals = {};
   if (bundles === true || (Array.isArray(bundles) && bundles.length > 0)) {
+    const { ensureNpmRuntimeArtifact } = await import("./lib/package-npm-runtime.mts");
+    await ensureNpmRuntimeArtifact(cwd);
     const { collectNpmPlatformOptionalDependencies, generateNpmPackageLock } =
       await import("./generate-npm-package-lock.mts");
     platformOptionals = collectNpmPlatformOptionalDependencies(
