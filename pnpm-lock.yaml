@@ -163,6 +163,10 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  '@a2ui/web_core@0.11.0>zod': 4.6.6
+  '@a2ui/lit@0.11.0>zod': 4.6.6
+  '@discord/embedded-app-sdk@2.5.0>zod': 4.6.6
+  '@a2ui/web_core@0.11.0>zod-to-json-schema': '-'
   '@lancedb/lancedb>@huggingface/transformers': '-'
   baileys>sharp: '-'
   baileys>audio-decode: 3.12.0
@@ -220,7 +224,10 @@ overrides:
 packageExtensionsChecksum: sha256-Y7vhONQzlz51oZN7TTGWCJABkDu/F4SuqtCdf5qYwZ0=
 
 patchedDependencies:
+  '@a2ui/lit@0.11.0': cc4900f947d624e4543501a4c1f090b93deb8167b0ae3f4b70a13af8e8ebc62a
+  '@a2ui/web_core@0.11.0': 7b2b76f35d3f8231032d2c678ce4bbe68e1d1a8cec5e33684e3f55b8eac5e384
   '@awesome.me/webawesome@3.13.0': 9b35bfc2e23b45e47ac3e6a669b8bf7df0c4ca89423e8a78d6fb921faa686208
+  '@discord/embedded-app-sdk@2.5.0': 4be78847af08dac5135d2aab19b6bf7f812744244d880d9c573cd28c8660b4bc
   '@novnc/novnc@1.7.0': bfde0e1bda172da3525f9f5014d85ad28073325b74f09609084598a65d2f412d
   '@openclaw/proxyline@0.3.12': 9e0969d2dc0abb32610053fba342756afb56f4996c90adfdc34f21ad090fbb0f
   baileys@7.0.0-rc14: 03ae85550381d1bda7d014c9aa9f544ad421d35d745d1167fd5d33f7f715dafb
@@ -431,10 +438,10 @@ importers:
     devDependencies:
       '@a2ui/lit':
         specifier: 0.11.0
-        version: 0.11.0(signal-polyfill@0.2.2)
+        version: 0.11.0(patch_hash=cc4900f947d624e4543501a4c1f090b93deb8167b0ae3f4b70a13af8e8ebc62a)(signal-polyfill@0.2.2)
       '@a2ui/web_core':
         specifier: 0.11.0
-        version: 0.11.0
+        version: 0.11.0(patch_hash=7b2b76f35d3f8231032d2c678ce4bbe68e1d1a8cec5e33684e3f55b8eac5e384)
       '@babel/types':
         specifier: 8.0.6
         version: 8.0.6
@@ -859,10 +866,10 @@ importers:
     dependencies:
       '@a2ui/lit':
         specifier: 0.11.0
-        version: 0.11.0(signal-polyfill@0.2.2)
+        version: 0.11.0(patch_hash=cc4900f947d624e4543501a4c1f090b93deb8167b0ae3f4b70a13af8e8ebc62a)(signal-polyfill@0.2.2)
       '@a2ui/web_core':
         specifier: 0.11.0
-        version: 0.11.0
+        version: 0.11.0(patch_hash=7b2b76f35d3f8231032d2c678ce4bbe68e1d1a8cec5e33684e3f55b8eac5e384)
       '@lit/context':
         specifier: 1.1.6
         version: 1.1.6
@@ -1123,7 +1130,7 @@ importers:
     dependencies:
       '@discord/embedded-app-sdk':
         specifier: 2.5.0
-        version: 2.5.0
+        version: 2.5.0(patch_hash=4be78847af08dac5135d2aab19b6bf7f812744244d880d9c573cd28c8660b4bc)
       '@discordjs/voice':
         specifier: 0.19.2
         version: 0.19.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
@@ -10439,9 +10446,6 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.6.6:
     resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
@@ -10450,25 +10454,24 @@ packages:
 
 snapshots:
 
-  '@a2ui/lit@0.11.0(signal-polyfill@0.2.2)':
+  '@a2ui/lit@0.11.0(patch_hash=cc4900f947d624e4543501a4c1f090b93deb8167b0ae3f4b70a13af8e8ebc62a)(signal-polyfill@0.2.2)':
     dependencies:
-      '@a2ui/web_core': 0.11.0
+      '@a2ui/web_core': 0.11.0(patch_hash=7b2b76f35d3f8231032d2c678ce4bbe68e1d1a8cec5e33684e3f55b8eac5e384)
       '@lit-labs/signals': 0.3.0
       '@lit/context': 1.1.6
       lit: 3.3.3
       signal-utils: 0.21.1(signal-polyfill@0.2.2)
-      zod: 3.25.76
+      zod: 4.6.6
     transitivePeerDependencies:
       - signal-polyfill
 
-  '@a2ui/web_core@0.11.0':
+  '@a2ui/web_core@0.11.0(patch_hash=7b2b76f35d3f8231032d2c678ce4bbe68e1d1a8cec5e33684e3f55b8eac5e384)':
     dependencies:
       '@lit/context': 1.1.6
       '@preact/signals-core': 1.14.4
       date-fns: 4.4.0
       lit: 3.3.3
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.6.6
 
   '@agentclientprotocol/claude-agent-acp@0.79.0(@anthropic-ai/sdk@0.128.0(zod@4.6.6))(@modelcontextprotocol/sdk@1.32.0(supports-color@10.2.2)(zod@4.6.6))':
     dependencies:
@@ -11563,7 +11566,7 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@discord/embedded-app-sdk@2.5.0':
+  '@discord/embedded-app-sdk@2.5.0(patch_hash=4be78847af08dac5135d2aab19b6bf7f812744244d880d9c573cd28c8660b4bc)':
     dependencies:
       '@types/lodash.transform': 4.6.9
       '@types/uuid': 10.0.0
@@ -11572,7 +11575,7 @@ snapshots:
       eventemitter3: 5.0.4
       lodash.transform: 4.6.0
       uuid: 14.0.2
-      zod: 3.25.76
+      zod: 4.6.6
 
   '@discordjs/voice@0.19.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
@@ -18509,15 +18512,9 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
-    dependencies:
-      zod: 3.25.76
-
   zod-to-json-schema@3.25.2(zod@4.6.6):
     dependencies:
       zod: 4.6.6
-
-  zod@3.25.76: {}
 
   zod@4.6.6: {}
 

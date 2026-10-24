@@ -3,6 +3,18 @@
 This secretless workflow runs only in `leether/openclaw`. It adds a complete
 Linux x64 package qualification without changing upstream CI or review gates.
 
+The manual `resolve-lock` mode only exports a lock candidate when an approved
+dependency change cannot be resolved within the local host's resource budget.
+It uses the exact selected source commit, verified Node 24.22.1, and the declared
+pnpm 12.5.1 with normal supply-chain policies and `--ignore-scripts`. It runs in
+a separate 4 GiB, zero-swap, 256-process, ten-minute scope; its resolver has a
+570-second deadline and a 2 MiB output cap. Every package manifest, configuration
+and patch input is hashed before and after, and only the tracked lock may change.
+The resulting artifact records the actual exit and is never package qualification
+or an automatic commit. Review and accept its dependency delta, then use the
+normal frozen installation and complete qualification on the resulting commit.
+The default mode remains `qualify`; the two jobs are mutually exclusive.
+
 The source build uses the checked-in frozen pnpm lock. The compiler uses the
 existing 6 GiB tsdown heap setting inside a 10 GiB memory scope; declaration
 concurrency still follows the repository's capacity checks. Native Go compilers
@@ -14,6 +26,33 @@ with its production dependencies. The npm tarball alone is not an offline
 runtime. Both verified Node runtime archives are included separately.
 The standalone installed production graph also runs `npm audit --omit=dev
 --audit-level=high`; its result is required independently of the source-lock audit.
+
+The exact A2UI and Discord SDK migrations are checked against
+`patches/zod4-consumers.json` before and after the full build. These checks bind
+the original registry SRI, applied patch, actual Zod edge, and published package
+bytes; package-manager links and generated shims are separately classified.
+Canvas's A2UI dependencies are bundled by the core build. Qualification follows
+the actual Canvas register/JSONL/compose module closure and both generated
+browser bundles, without inventing standalone A2UI npm dependencies in core.
+The repository's managed Playwright Chromium owner prepares the browser inside
+the existing resource/time budget. Installed/restored v0.8 and v0.9 assets must
+match the frozen build and pass all four actual-browser cases offline.
+
+Discord has its own canonical plugin build/pack and a fresh npm installation.
+Its lock, complete dependency graph, high/critical audit, and full runtime
+archive are retained separately from core. Both Node versions exercise the
+actual SDK ESM/CJS exports, embedded parser, errors/defaults, and generated SDK
+browser asset on installed and restored paths. This synthetic SDK qualification
+does not connect to Discord or prove production channel credentials or delivery.
+
+Teams is separately built and packed with its canonical runtime dependency
+bundle enabled. Its fresh npm graph and offline runtime preserve the two
+parent-specific MSAL 7.1.0 edges; installed/restored authentication proofs use
+synthetic transports, never live Azure credentials. Core's actual Undici 8.12.2
+also exercises direct HTTP, queued/header/body cancellation, CONNECT proxies,
+and the default HTTP-forwarding proxy with real loopback sockets in each of the
+four installation/runtime combinations. A queued cancellation must prevent wire
+admission; Undici may settle its promise only after the earlier request completes.
 
 After installation, native ABI and shared synthetic SQLite state are checked
 with Node 24.22.0, 24.22.1, and 24.22.0 again. Installed Gateway tests run with

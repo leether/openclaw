@@ -10,6 +10,9 @@ import { pnpmLockfileDocuments } from "./lib/pnpm-lockfile-documents.mjs";
 import { runAsScript } from "./lib/ts-guard-utils.mts";
 
 const ALLOWED_PATCHED_DEPENDENCIES = new Map([
+  ["@a2ui/web_core@0.11.0", "patches/@a2ui__web_core@0.11.0.patch"],
+  ["@a2ui/lit@0.11.0", "patches/@a2ui__lit@0.11.0.patch"],
+  ["@discord/embedded-app-sdk@2.5.0", "patches/@discord__embedded-app-sdk@2.5.0.patch"],
   ["@openclaw/proxyline@0.3.12", "patches/@openclaw__proxyline@0.3.12.patch"],
   ["chrome-devtools-mcp@1.10.1", "patches/chrome-devtools-mcp@1.10.1.patch"],
   ["@awesome.me/webawesome@3.13.0", "patches/@awesome.me__webawesome@3.13.0.patch"],
@@ -22,7 +25,14 @@ const ALLOWED_PATCHED_DEPENDENCIES = new Map([
   ["ghostty-web@0.4.0", "patches/ghostty-web@0.4.0.patch"],
 ]);
 
-const ALLOWED_PATCH_FILES = new Set(["patches/.gitkeep", ...ALLOWED_PATCHED_DEPENDENCIES.values()]);
+// Owner-source diffs accompany only the three approved generated package patches.
+// They are provenance documents, not additional pnpm patch registrations.
+const ALLOWED_PATCH_FILES = new Set([
+  "patches/.gitkeep",
+  "patches/a2ui-0.11.0-zod4.6.6-source.patch",
+  "patches/discord-2.5.0-zod4.6.6-source.patch",
+  ...ALLOWED_PATCHED_DEPENDENCIES.values(),
+]);
 
 type PackagePatchViolation = { file: string; kind: string; detail: string };
 
