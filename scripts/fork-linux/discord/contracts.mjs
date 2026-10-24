@@ -6,7 +6,7 @@ import path from "node:path";
 import { verifyPackageTree } from "../patched-consumer-contract.mjs";
 
 export const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
-export const MANIFEST_SHA = "66647401262ed4b7ddb3ba38a4837fc72fa1086f7c616922debc437f2eeab559";
+export const MANIFEST_SHA = "0a55a1dd6a42524cc3d512aa66dd4722aae436056b91fa167a78e0aefeb984f1";
 const manifestBytes = fs.readFileSync(new URL("./frozen/target-manifest.json", import.meta.url));
 assert.equal(sha(manifestBytes), MANIFEST_SHA, "frozen SDK manifest identity");
 export const sdkManifest = JSON.parse(manifestBytes);
@@ -16,11 +16,11 @@ export const SDK_TREE = {
   name: "@discord/embedded-app-sdk",
   version: "2.5.0",
   fileCount: 231,
-  targetTreeSha256: "55ca2312208c200274bba44b6fb269cd79d769874b2453e685b542d42533a735",
+  targetTreeSha256: "a23dd2f11ed0baf71e60f4f9cd1c04e2fc920b57898fa12cc729fe4b8364e432",
   packageJsonVariants: [
     {
-      sha256: "8c3ac12abe98b863a95d972f27ad0df500716119cfe7e6a16558d70afedf813f",
-      bytes: 2690,
+      sha256: "79993c4cda5a6de1ac654029c3c7a43712c5b309802d6e3068523f371389e839",
+      bytes: 2689,
       mode: "0o644",
     },
   ],

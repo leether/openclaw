@@ -5,8 +5,8 @@
     "mode": "0o644"
   },
   "OPENCLAW_PATCH_NOTICE.md": {
-    "sha256": "ecb8944911066c7acab74c4411bcaa75111f72da94c078ba29b4573e63a9e5e3",
-    "bytes": 1721,
+    "sha256": "4b1b5b5c3ad11871f0fde56a38e4ba4835ead593517b7e2202c27f47e74c2dbf",
+    "bytes": 2801,
     "mode": "0o644"
   },
   "README.md": {
@@ -1150,8 +1150,8 @@
     "mode": "0o644"
   },
   "package.json": {
-    "sha256": "8c3ac12abe98b863a95d972f27ad0df500716119cfe7e6a16558d70afedf813f",
-    "bytes": 2690,
+    "sha256": "79993c4cda5a6de1ac654029c3c7a43712c5b309802d6e3068523f371389e839",
+    "bytes": 2689,
     "mode": "0o644"
   }
 }

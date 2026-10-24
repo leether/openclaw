@@ -9,12 +9,14 @@ const dirs: string[] = [];
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 afterEach(() => cleanupTempDirs(dirs));
 
-function fixture() {
+function fixture(sdkUuid?: string) {
   const root = makeTempDir(dirs, "patched-consumer-contract-");
+  const name = sdkUuid ? "@discord/embedded-app-sdk" : "@a2ui/web_core";
+  const version = sdkUuid ? "2.5.0" : "0.11.0";
   const body = JSON.stringify({
-    name: "@a2ui/web_core",
-    version: "0.11.0",
-    dependencies: { zod: "4.6.6" },
+    name,
+    version,
+    dependencies: { zod: "4.6.6", ...(sdkUuid ? { uuid: sdkUuid } : {}) },
   });
   const manifest = `${body}\n`;
   writeFileSync(path.join(root, "package.json"), manifest, { mode: 0o644 });
@@ -25,8 +27,8 @@ function fixture() {
   ];
   const mode = (file: string) => `0o${(statSync(path.join(root, file)).mode & 0o777).toString(8)}`;
   const expected = {
-    name: "@a2ui/web_core",
-    version: "0.11.0",
+    name,
+    version,
     fileCount: 2,
     targetTreeSha256: sha(
       JSON.stringify(
@@ -43,6 +45,19 @@ function fixture() {
 }
 
 describe("patched package content contract", () => {
+  it("accepts the SDK declaration matching the already resolved UUID version", () => {
+    const { root, expected } = fixture("14.0.2");
+    expect(verifyPackageTree(root, expected).name).toBe("@discord/embedded-app-sdk");
+  });
+
+  it.each(["^11.0.0", "^14.0.0"])(
+    "rejects SDK UUID declaration %s even when its carrier hashes were regenerated",
+    (declaration) => {
+      const { root, expected } = fixture(declaration);
+      expect(() => verifyPackageTree(root, expected)).toThrow();
+    },
+  );
+
   it("accepts the exact published bytes and the one explicitly recorded pnpm newline variant", () => {
     const { root, expected, body } = fixture();
     const first = verifyPackageTree(root, expected);
@@ -69,10 +84,15 @@ describe("patched package content contract", () => {
 
   it.each(["changed", "additional", "symlink"])("rejects %s runtime content", (kind) => {
     const { root, expected } = fixture();
-    if (kind === "changed")
+    if (kind === "changed") {
       writeFileSync(path.join(root, "index.js"), "export const version = 3;\n");
-    if (kind === "additional") writeFileSync(path.join(root, "legacy.js"), "legacy");
-    if (kind === "symlink") symlinkSync("index.js", path.join(root, "linked.js"));
+    }
+    if (kind === "additional") {
+      writeFileSync(path.join(root, "legacy.js"), "legacy");
+    }
+    if (kind === "symlink") {
+      symlinkSync("index.js", path.join(root, "linked.js"));
+    }
     expect(() => verifyPackageTree(root, expected)).toThrow();
   });
 });

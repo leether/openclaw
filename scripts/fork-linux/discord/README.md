@@ -34,11 +34,19 @@ Run all four combinations separately: installed/restored × Node 24.22.1/24.22.0
 
 ## Probe provenance
 
-The lint repair preserves all compatibility and error/default/path assertions. Alongside the synthetic `Error` case, the compatibility probe instantiates the installed SDK and passes a synthetic `ERROR` frame through its real `sendCommand` owner. It observes the unchanged plain-object rejection and exercises the installed `setOrientationLockState` compatibility factory. Exact primary/fallback arguments, two distinct nonces, one rejection, two command frames, no pending commands and listener cleanup are required. This uses no manual plain-object throw and no replacement SDK implementation. Both formats must run again against the installed and restored packages; prior 86/13/19 results remain historical. The official SDK carrier manifest, patches and package integrity values are unchanged.
+The lint repair preserves all compatibility and error/default/path assertions. Alongside the synthetic `Error` case, the compatibility probe instantiates the installed SDK and passes a synthetic `ERROR` frame through its real `sendCommand` owner. It observes the unchanged plain-object rejection and exercises the installed `setOrientationLockState` compatibility factory. Exact primary/fallback arguments, two distinct nonces, one rejection, two command frames, no pending commands and listener cleanup are required. This uses no manual plain-object throw and no replacement SDK implementation. Both formats must run again against the installed and restored packages; prior 86/13/19 results remain historical. That probe-only repair did not change the SDK carrier; the separately recorded packaging metadata overlay below changes its manifest and patch identities.
 
 `contracts.mjs` pins the reviewed provenance file SHA and verifies each current probe's bytes against it. Capture and every installed/restored report carry this exact identity. The four-path aggregate independently obtains the identity from that same source owner and rejects absent, altered or historical probe hashes, including four mutually consistent reports with the wrong source provenance.
 
 The SDK resolver consumes the validated source or installation contract name, whose exact value is fixed by `SDK_TREE` and `validateContract`. Its dependency owner is the supplied Discord plugin package, not the root proof-tool package. No dependency-ignore rule or outer-hoist fallback is used.
+
+## UUID packaging metadata overlay
+
+The SDK package declares `dependencies.uuid: "14.0.2"`. The official baseline commit `383c124cc32ffee3f8e56f549b88da94d269a4af` already resolved that exact version through the existing global override; the overlay reconciles the upstream `^11.0.0` declaration with that installed dependency. It does not change the override, dependency version, or SDK implementation.
+
+Normal `pnpm patch` / `patch-commit` generates the package patch. Only `package.json` and the existing `OPENCLAW_PATCH_NOTICE.md` differ from the reviewed Zod carrier: all 227 `output/` files remain identical. The original TypeScript migration patch remains a historical build input and is not rewritten to imply it generated the later packaging declaration. `patches/zod4-consumers.json` records this overlay separately; the exact package manifest, 231-file tree, and source patch are all checked. `verifyPackageTree` additionally rejects any UUID declaration other than the exact `14.0.2`, even if supplied matching tree hashes.
+
+A fresh offline frozen pnpm application verifies the resulting 231-file package. SDK-only pack/install/restore and full separately packaged Discord installed/restored qualification are distinct gates; historical carrier or local SDK checks do not replace the required Linux plugin qualification.
 
 ## Reports
 

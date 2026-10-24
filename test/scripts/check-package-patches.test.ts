@@ -65,6 +65,8 @@ describe("check-package-patches", () => {
       ["@a2ui/web_core@0.11.0", "patches/@a2ui__web_core@0.11.0.patch"],
       ["@a2ui/lit@0.11.0", "patches/@a2ui__lit@0.11.0.patch"],
       ["@discord/embedded-app-sdk@2.5.0", "patches/@discord__embedded-app-sdk@2.5.0.patch"],
+      ["@azure/identity@4.13.3", "patches/@azure__identity@4.13.3.patch"],
+      ["@microsoft/teams.apps@2.1.0", "patches/@microsoft__teams.apps@2.1.0.patch"],
       ["@awesome.me/webawesome@3.13.0", "patches/@awesome.me__webawesome@3.13.0.patch"],
       ["baileys@7.0.0-rc12", "patches/baileys@7.0.0-rc12.patch"],
       ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
@@ -109,6 +111,10 @@ ${approvedPatches.map(([specifier]) => `  "${specifier}": a9aea1790d2c65b1ae543c
     ["@a2ui/lit@0.11.0", "patches/@a2ui__lit@0.11.0-other.patch"],
     ["@discord/embedded-app-sdk@2.5.1", "patches/@discord__embedded-app-sdk@2.5.1.patch"],
     ["@discord/embedded-app-sdk@2.5.0", "patches/@discord__embedded-app-sdk@2.5.0-other.patch"],
+    ["@azure/identity@4.13.4", "patches/@azure__identity@4.13.4.patch"],
+    ["@azure/identity@4.13.3", "patches/@azure__identity@4.13.3-other.patch"],
+    ["@microsoft/teams.apps@2.1.1", "patches/@microsoft__teams.apps@2.1.1.patch"],
+    ["@microsoft/teams.apps@2.1.0", "patches/@microsoft__teams.apps@2.1.0-other.patch"],
   ])("rejects unapproved workspace patch %s -> %s", (specifier, patchPath) => {
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });

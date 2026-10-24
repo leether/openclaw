@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
-import { describe, expect, it } from "vitest";
-import { officialMsal, parents } from "../../scripts/fork-linux/msal/identity.mjs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  inspectParentDependencyManifest,
+  officialMsal,
+  parents,
+  sha,
+} from "../../scripts/fork-linux/msal/identity.mjs";
 import {
   collectMsalQualification,
   msalScenarios,
 } from "../../scripts/fork-linux/security-consumer-manifest.mjs";
+import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function fixture() {
   const hash = "a".repeat(64);
@@ -15,11 +26,14 @@ function fixture() {
     node: "v24.22.1",
     platform: "linux",
     arch: "x64",
-    parents: parents.map(([name, version]) => ({
+    parents: parents.map(([name, version, dependencyManifestSha256]) => ({
       name,
       version,
       packageSha256: hash,
       entrySha256: hash,
+      dependencyManifestSha256,
+      declaredMsalRange: officialMsal.version,
+      msalResolutionContextsEqual: true,
       msal: {
         name: "@azure/msal-node",
         ...officialMsal,
@@ -43,6 +57,7 @@ function fixture() {
       identity: capture.parents.map((parent) => ({
         ...parent,
         parentRelative: `node_modules/${parent.name}`,
+        dependencyManifestRelative: `node_modules/${parent.name}/package.json`,
         msal: { ...parent.msal, relative: "node_modules/@azure/msal-node" },
       })),
       cells: msalScenarios.map((scenario) => ({
@@ -145,6 +160,33 @@ describe("actual Teams/MSAL proof aggregation", () => {
   it("requires both parent identities and all seven real-consumer cells on four paths", async () => {
     expect(await fixture().run()).toMatchObject({ passed: true, combinations: 4 });
   });
+  it.each(["^6.0.0", "^5.6.0", "^7.1.0"])(
+    "rejects parent declaration %s even when capture and every runtime agree",
+    async (range) => {
+      const f = fixture();
+      for (const parent of f.capture.parents) {
+        parent.declaredMsalRange = range;
+      }
+      for (const proof of f.runtime.values()) {
+        for (const parent of proof.identity) {
+          parent.declaredMsalRange = range;
+        }
+      }
+      await expect(f.run()).rejects.toThrow();
+    },
+  );
+  it("rejects the same unreviewed root manifest in source and all four runtime cells", async () => {
+    const f = fixture();
+    for (const parent of f.capture.parents) {
+      parent.dependencyManifestSha256 = "b".repeat(64);
+    }
+    for (const proof of f.runtime.values()) {
+      for (const parent of proof.identity) {
+        parent.dependencyManifestSha256 = "b".repeat(64);
+      }
+    }
+    await expect(f.run()).rejects.toThrow();
+  });
   it.each([
     "missing",
     "old-msal",
@@ -183,6 +225,10 @@ describe("actual Teams/MSAL proof aggregation", () => {
     "unchecked-resource",
     "missing-federation-join",
     "missing-issued-token",
+    "missing-root-manifest",
+    "missing-root-join",
+    "root-outside-plugin",
+    "restored-root-path-drift",
   ])("rejects %s evidence", async (fault) => {
     const f = fixture();
     const name = "restored-msteams-proof-24.22.0.json";
@@ -307,6 +353,103 @@ describe("actual Teams/MSAL proof aggregation", () => {
     if (fault === "missing-issued-token") {
       federation.exchangeTokenHashes = [];
     }
+    if (fault === "missing-root-manifest") {
+      Reflect.deleteProperty(parent, "dependencyManifestSha256");
+    }
+    if (fault === "missing-root-join") {
+      Reflect.deleteProperty(parent, "msalResolutionContextsEqual");
+    }
+    if (fault === "root-outside-plugin") {
+      parent.dependencyManifestRelative = "../other-parent/package.json";
+    }
+    if (fault === "restored-root-path-drift") {
+      parent.dependencyManifestRelative = "node_modules/other-layout/package.json";
+    }
     await expect(f.run()).rejects.toThrow();
+  });
+});
+
+function parentFixture() {
+  const root = tempDirs.make("msal-parent-dependency-");
+  const name = "@azure/identity";
+  const version = "4.13.3";
+  const dir = path.join(root, "node_modules", name);
+  const entry = path.join(dir, "dist/commonjs/index.js");
+  mkdirSync(path.dirname(entry), { recursive: true });
+  writeFileSync(entry, "// Synthetic entry is resolved, never executed.\n");
+  writeFileSync(path.join(root, "package.json"), "{}\n");
+  const manifest = {
+    name,
+    version,
+    exports: { ".": "./dist/commonjs/index.js", "./package.json": "./package.json" },
+    dependencies: { "@azure/msal-node": "7.1.0" },
+  };
+  const file = path.join(dir, "package.json");
+  writeFileSync(file, JSON.stringify(manifest));
+  writeFileSync(path.join(dir, "dist/commonjs/package.json"), JSON.stringify({ name, version }));
+  const msal = path.join(dir, "node_modules/@azure/msal-node");
+  mkdirSync(msal, { recursive: true });
+  const msalManifest = { name: "@azure/msal-node", version: "7.1.0", main: "./index.js" };
+  writeFileSync(path.join(msal, "package.json"), JSON.stringify(msalManifest));
+  writeFileSync(path.join(msal, "index.js"), "// Synthetic MSAL entry is never executed.\n");
+  const req = createRequire(path.join(root, "package.json"));
+  const expected = { name, version, packageSha256: sha(readFileSync(file)) };
+  const run = () => inspectParentDependencyManifest(req, { entry }, expected, root);
+  return { root, dir, entry, file, manifest, expected, msalManifest, run };
+}
+
+describe("MSAL declaring parent identity", () => {
+  it("resolves the dependency-bearing root rather than Azure's nearest entry manifest", () => {
+    const f = parentFixture();
+    expect(f.run()).toMatchObject({
+      dependencyManifestSha256: f.expected.packageSha256,
+      dependencyManifestRelative: "node_modules/@azure/identity/package.json",
+      declaredMsalRange: "7.1.0",
+      msalResolutionContextsEqual: true,
+    });
+  });
+  it.each(["^6.0.0", "^5.6.0", "^7.1.0"])(
+    "rejects range %s before borrowing the correctly resolved runtime",
+    (range) => {
+      const f = parentFixture();
+      f.manifest.dependencies["@azure/msal-node"] = range;
+      writeFileSync(f.file, JSON.stringify(f.manifest));
+      f.expected.packageSha256 = sha(readFileSync(f.file));
+      expect(f.run).toThrow();
+    },
+  );
+  it("rejects unreviewed root bytes even with the required dependency value", () => {
+    const f = parentFixture();
+    writeFileSync(f.file, `${JSON.stringify(f.manifest)}\n`);
+    expect(f.run).toThrow("reviewed parent dependency manifest");
+  });
+  it.each(["wrong-name", "wrong-version", "missing-dependency", "missing-root-export"])(
+    "rejects %s at the declaring root",
+    (fault) => {
+      const f = parentFixture();
+      if (fault === "wrong-name") {
+        f.manifest.name = "@azure/other";
+      }
+      if (fault === "wrong-version") {
+        f.manifest.version = "4.0.0";
+      }
+      if (fault === "missing-dependency") {
+        Reflect.deleteProperty(f.manifest.dependencies, "@azure/msal-node");
+      }
+      if (fault === "missing-root-export") {
+        Reflect.deleteProperty(f.manifest.exports, "./package.json");
+      }
+      writeFileSync(f.file, JSON.stringify(f.manifest));
+      f.expected.packageSha256 = sha(readFileSync(f.file));
+      expect(f.run).toThrow();
+    },
+  );
+  it("rejects an entry-local MSAL copy despite identical name, version and bytes", () => {
+    const f = parentFixture();
+    const nested = path.join(path.dirname(f.entry), "node_modules/@azure/msal-node");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(path.join(nested, "package.json"), JSON.stringify(f.msalManifest));
+    writeFileSync(path.join(nested, "index.js"), "// Synthetic MSAL entry is never executed.\n");
+    expect(f.run).toThrow("parent root and entry MSAL package identity");
   });
 });

@@ -25,10 +25,13 @@ export async function collectMsalQualification(read, hashFile) {
   assert.equal(capture.platform, "linux");
   assert.equal(capture.arch, "x64");
   assert.equal(capture.parents.length, 2);
-  for (const [index, [name, version]] of parents.entries()) {
+  for (const [index, [name, version, dependencyManifestSha256]] of parents.entries()) {
     const parent = capture.parents[index];
     assert.equal(parent.name, name);
     assert.equal(parent.version, version);
+    assert.equal(parent.dependencyManifestSha256, dependencyManifestSha256);
+    assert.equal(parent.declaredMsalRange, officialMsal.version);
+    assert.equal(parent.msalResolutionContextsEqual, true);
     for (const key of ["packageSha256", "entrySha256"]) {
       assert.match(parent[key], /^[a-f0-9]{64}$/);
     }
@@ -59,7 +62,11 @@ export async function collectMsalQualification(read, hashFile) {
       assert.equal(proof.noLiveAzureAuthorizationClaim, true);
       assert.deepEqual(hashesOnly(proof.identity), capture.parents);
       for (const parent of proof.identity) {
-        for (const relative of [parent.parentRelative, parent.msal.relative]) {
+        for (const relative of [
+          parent.parentRelative,
+          parent.dependencyManifestRelative,
+          parent.msal.relative,
+        ]) {
           assert.equal(typeof relative, "string");
           assert.ok(relative.split("/").every((part) => part && part !== "." && part !== ".."));
           assert.equal(relative.includes("\\"), false);

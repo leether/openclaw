@@ -82,6 +82,9 @@ export function verifyPackageTree(packageRoot, expected) {
   if (pkg.name === "@a2ui/web_core") {
     assert.equal(pkg.dependencies["zod-to-json-schema"], undefined);
   }
+  if (pkg.name === "@discord/embedded-app-sdk") {
+    assert.equal(pkg.dependencies.uuid, "14.0.2", "SDK UUID packaging declaration");
+  }
   return {
     name: pkg.name,
     version: pkg.version,

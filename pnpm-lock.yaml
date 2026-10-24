@@ -229,7 +229,9 @@ patchedDependencies:
   '@a2ui/lit@0.11.0': cc4900f947d624e4543501a4c1f090b93deb8167b0ae3f4b70a13af8e8ebc62a
   '@a2ui/web_core@0.11.0': 7b2b76f35d3f8231032d2c678ce4bbe68e1d1a8cec5e33684e3f55b8eac5e384
   '@awesome.me/webawesome@3.13.0': 9b35bfc2e23b45e47ac3e6a669b8bf7df0c4ca89423e8a78d6fb921faa686208
-  '@discord/embedded-app-sdk@2.5.0': 4be78847af08dac5135d2aab19b6bf7f812744244d880d9c573cd28c8660b4bc
+  '@azure/identity@4.13.3': 32ce04e66f46d169079e504caf3fe92471de726e203b26058a968c6106f0d2c5
+  '@discord/embedded-app-sdk@2.5.0': 01c1e5be0adccc7206fe8a81fdc42a3cfe84e789688a5e3f5663789154413482
+  '@microsoft/teams.apps@2.1.0': 4571e159698442c407f57b3b71b184b89f2f58b249dc477f495df56925f97d0c
   '@novnc/novnc@1.7.0': bfde0e1bda172da3525f9f5014d85ad28073325b74f09609084598a65d2f412d
   '@openclaw/proxyline@0.3.12': 9e0969d2dc0abb32610053fba342756afb56f4996c90adfdc34f21ad090fbb0f
   baileys@7.0.0-rc14: 03ae85550381d1bda7d014c9aa9f544ad421d35d745d1167fd5d33f7f715dafb
@@ -1132,7 +1134,7 @@ importers:
     dependencies:
       '@discord/embedded-app-sdk':
         specifier: 2.5.0
-        version: 2.5.0(patch_hash=4be78847af08dac5135d2aab19b6bf7f812744244d880d9c573cd28c8660b4bc)
+        version: 2.5.0(patch_hash=01c1e5be0adccc7206fe8a81fdc42a3cfe84e789688a5e3f5663789154413482)
       '@discordjs/voice':
         specifier: 0.19.2
         version: 0.19.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
@@ -1752,13 +1754,13 @@ importers:
     dependencies:
       '@azure/identity':
         specifier: 4.13.3
-        version: 4.13.3(supports-color@10.2.2)
+        version: 4.13.3(patch_hash=32ce04e66f46d169079e504caf3fe92471de726e203b26058a968c6106f0d2c5)(supports-color@10.2.2)
       '@microsoft/teams.api':
         specifier: 2.1.0
         version: 2.1.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
       '@microsoft/teams.apps':
         specifier: 2.1.0
-        version: 2.1.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
+        version: 2.1.0(patch_hash=4571e159698442c407f57b3b71b184b89f2f58b249dc477f495df56925f97d0c)(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
       express:
         specifier: 5.2.1
         version: 5.2.1(supports-color@10.2.2)
@@ -11024,7 +11026,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@azure/identity@4.13.3(supports-color@10.2.2)':
+  '@azure/identity@4.13.3(patch_hash=32ce04e66f46d169079e504caf3fe92471de726e203b26058a968c6106f0d2c5)(supports-color@10.2.2)':
     dependencies:
       '@azure/abort-controller': 2.2.0
       '@azure/core-auth': 1.11.0(supports-color@10.2.2)
@@ -11558,7 +11560,7 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@discord/embedded-app-sdk@2.5.0(patch_hash=4be78847af08dac5135d2aab19b6bf7f812744244d880d9c573cd28c8660b4bc)':
+  '@discord/embedded-app-sdk@2.5.0(patch_hash=01c1e5be0adccc7206fe8a81fdc42a3cfe84e789688a5e3f5663789154413482)':
     dependencies:
       '@types/lodash.transform': 4.6.9
       '@types/uuid': 10.0.0
@@ -12268,7 +12270,7 @@ snapshots:
       - debug
       - supports-color
 
-  '@microsoft/teams.apps@2.1.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)':
+  '@microsoft/teams.apps@2.1.0(patch_hash=4571e159698442c407f57b3b71b184b89f2f58b249dc477f495df56925f97d0c)(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)':
     dependencies:
       '@azure/msal-node': 7.1.0
       '@microsoft/teams.api': 2.1.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
