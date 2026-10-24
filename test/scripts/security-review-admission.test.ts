@@ -1,5 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { revalidatePublishedSecurityClearance } from "../../scripts/github/guard-review.mjs";
+import * as securityReviewPolicy from "../../scripts/github/security-review-policy.mjs";
+
+let rolloutPullRequest: number | undefined;
+
+beforeEach(() => {
+  const policy = securityReviewPolicy.loadSecurityReviewPolicy();
+  rolloutPullRequest = 152415;
+  // Admission fixtures exercise both rollout and permanently enforced policy,
+  // independently of which rollout the checked-out repository currently uses.
+  vi.spyOn(securityReviewPolicy, "loadSecurityReviewPolicy").mockImplementation(() => ({
+    ...policy,
+    rolloutPullRequest,
+  }));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const head = "a".repeat(40);
 const rolloutCommit = "b".repeat(40);
@@ -23,6 +41,7 @@ function fixture() {
   const state = {
     currentPull: structuredClone(pullRequest),
     rollout: "enforced" as "enforced" | "grandfathered" | "inactive",
+    rolloutReads: 0,
     role: "maintain",
     afterPermission: () => {},
   };
@@ -83,6 +102,7 @@ function fixture() {
           return state.currentPull;
         }
         if (path === "/repos/openclaw/openclaw/pulls/152415") {
+          state.rolloutReads += 1;
           return {
             number: 152415,
             state: state.rollout === "inactive" ? "open" : "closed",
@@ -299,7 +319,7 @@ describe("published security clearance admission", () => {
   );
 
   it.each(["inactive", "grandfathered"] as const)(
-    "uses the actual %s rollout without requiring unpublished standalone statuses",
+    "uses the configured %s rollout without requiring unpublished standalone statuses",
     async (mode) => {
       const f = fixture();
       f.state.rollout = mode;
@@ -312,6 +332,27 @@ describe("published security clearance admission", () => {
       });
     },
   );
+
+  it("enforces standalone guards without consulting a rollout when none is configured", async () => {
+    rolloutPullRequest = undefined;
+    const f = fixture();
+    f.state.rollout = "inactive";
+    await expect(f.run()).resolves.toEqual({
+      rollout: { mode: "enforced" },
+      combinedStatusId: 3,
+      guardStatusIds: [1, 2],
+      approvals: [],
+    });
+    expect(f.state.rolloutReads).toBe(0);
+  });
+
+  it("refuses missing standalone guards when no rollout is configured", async () => {
+    rolloutPullRequest = undefined;
+    const f = fixture();
+    f.statuses.splice(0, 2);
+    await expect(f.run()).rejects.toThrow("unsuccessful openclaw/dependency-review");
+    expect(f.state.rolloutReads).toBe(0);
+  });
 
   it("does not discard a contradictory fresh guard failure during an exempt rollout", async () => {
     const f = fixture();

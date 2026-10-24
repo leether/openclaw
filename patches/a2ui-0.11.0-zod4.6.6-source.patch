@@ -1,0 +1,708 @@
+--- a/web_core/package.json
++++ b/web_core/package.json
+@@ -60,7 +60,6 @@
+     "@preact/signals-core": "^1.14.2",
+     "date-fns": "^4.4.0",
+     "lit": "^3.3.3",
+-    "zod": "^3.25.76",
+-    "zod-to-json-schema": "^3.25.2"
++    "zod": "4.6.6"
+   }
+-}
+\ No newline at end of file
++}
+--- a/web_core/src/v0_9/basic_catalog/components/basic_components.ts
++++ b/web_core/src/v0_9/basic_catalog/components/basic_components.ts
+@@ -38,6 +38,8 @@
+     .optional(),
+ };
+ 
++// Zod 3 optional(default(...)) did not fill omitted properties. These defaults
++// are catalog annotations; renderer defaults continue to own absent values.
+ export const TextApi = {
+   name: 'Text',
+   schema: z
+@@ -48,7 +50,7 @@
+       ),
+       'variant': z
+         .enum(['h1', 'h2', 'h3', 'h4', 'h5', 'caption', 'body'])
+-        .default('body')
++        .meta({default: 'body'})
+         .describe('A hint for the base text style.')
+         .optional(),
+     })
+@@ -66,14 +68,14 @@
+       ).optional(),
+       'fit': z
+         .enum(['contain', 'cover', 'fill', 'none', 'scaleDown'])
+-        .default('fill')
++        .meta({default: 'fill'})
+         .describe(
+           "Specifies how the image should be resized to fit its container. This corresponds to the CSS 'object-fit' property.",
+         )
+         .optional(),
+       'variant': z
+         .enum(['icon', 'avatar', 'smallFeature', 'mediumFeature', 'largeFeature', 'header'])
+-        .default('mediumFeature')
++        .meta({default: 'mediumFeature'})
+         .describe('A hint for the image size and style.')
+         .optional(),
+     })
+@@ -200,14 +202,14 @@
+       }),
+       'justify': z
+         .enum(['center', 'end', 'spaceAround', 'spaceBetween', 'spaceEvenly', 'start', 'stretch'])
+-        .default('start')
++        .meta({default: 'start'})
+         .describe(
+           "Defines the arrangement of children along the main axis (horizontally). Use 'spaceBetween' to push items to the edges, or 'start'/'end'/'center' to pack them together.",
+         )
+         .optional(),
+       'align': z
+         .enum(['start', 'center', 'end', 'stretch'])
+-        .default('stretch')
++        .meta({default: 'stretch'})
+         .describe(
+           "Defines the alignment of children along the cross axis (vertically). This is similar to the CSS 'align-items' property, but uses camelCase values (e.g., 'start').",
+         )
+@@ -230,14 +232,14 @@
+       }),
+       'justify': z
+         .enum(['start', 'center', 'end', 'spaceBetween', 'spaceAround', 'spaceEvenly', 'stretch'])
+-        .default('start')
++        .meta({default: 'start'})
+         .describe(
+           "Defines the arrangement of children along the main axis (vertically). Use 'spaceBetween' to push items to the edges (e.g. header at top, footer at bottom), or 'start'/'end'/'center' to pack them together.",
+         )
+         .optional(),
+       'align': z
+         .enum(['center', 'end', 'start', 'stretch'])
+-        .default('stretch')
++        .meta({default: 'stretch'})
+         .describe(
+           "Defines the alignment of children along the cross axis (horizontally). This is similar to the CSS 'align-items' property.",
+         )
+@@ -260,12 +262,12 @@
+       }),
+       'direction': z
+         .enum(['vertical', 'horizontal'])
+-        .default('vertical')
++        .meta({default: 'vertical'})
+         .describe('The direction in which the list items are laid out.')
+         .optional(),
+       'align': z
+         .enum(['start', 'center', 'end', 'stretch'])
+-        .default('stretch')
++        .meta({default: 'stretch'})
+         .describe('Defines the alignment of children along the cross axis.')
+         .optional(),
+       'listStyle': z
+@@ -337,7 +339,7 @@
+       ...CommonProps,
+       'axis': z
+         .enum(['horizontal', 'vertical'])
+-        .default('horizontal')
++        .meta({default: 'horizontal'})
+         .describe('The orientation of the divider.')
+         .optional(),
+     })
+@@ -355,7 +357,7 @@
+       }),
+       'variant': z
+         .enum(['default', 'primary', 'borderless'])
+-        .default('default')
++        .meta({default: 'default'})
+         .describe(
+           "A hint for the button style. If omitted, a default button style is used. 'primary' indicates this is the main call-to-action button. 'borderless' means the button has no visual border or background, making its child content appear like a clickable link.",
+         )
+@@ -375,7 +377,7 @@
+       'value': DynamicStringSchema.describe('The value of the text field.').optional(),
+       'variant': z
+         .enum(['longText', 'number', 'shortText', 'obscured'])
+-        .default('shortText')
++        .meta({default: 'shortText'})
+         .describe('The type of input field to display.')
+         .optional(),
+       'validationRegexp': z
+@@ -409,7 +411,7 @@
+       'label': DynamicStringSchema.describe('The label for the group of options.').optional(),
+       'variant': z
+         .enum(['multipleSelection', 'mutuallyExclusive'])
+-        .default('mutuallyExclusive')
++        .meta({default: 'mutuallyExclusive'})
+         .describe('A hint for how the choice picker should be displayed and behave.')
+         .optional(),
+       'options': z
+@@ -427,12 +429,12 @@
+       ),
+       'displayStyle': z
+         .enum(['checkbox', 'chips'])
+-        .default('checkbox')
++        .meta({default: 'checkbox'})
+         .describe('The display style of the component.')
+         .optional(),
+       'filterable': z
+         .boolean()
+-        .default(false)
++        .meta({default: false})
+         .describe('If true, displays a search input to filter the options.')
+         .optional(),
+       ...CheckableSchema.shape,
+@@ -447,7 +449,7 @@
+     .object({
+       ...CommonProps,
+       'label': DynamicStringSchema.describe('The label for the slider.').optional(),
+-      'min': z.number().default(0).describe('The minimum value of the slider.').optional(),
++      'min': z.number().meta({default: 0}).describe('The minimum value of the slider.').optional(),
+       'max': z.number().describe('The maximum value of the slider.'),
+       'value': DynamicNumberSchema.describe('The current value of the slider.'),
+       ...CheckableSchema.shape,
+@@ -465,12 +467,12 @@
+       ),
+       'enableDate': z
+         .boolean()
+-        .default(false)
++        .meta({default: false})
+         .describe('If true, allows the user to select a date.')
+         .optional(),
+       'enableTime': z
+         .boolean()
+-        .default(false)
++        .meta({default: false})
+         .describe('If true, allows the user to select a time.')
+         .optional(),
+       'min': z
+--- a/web_core/src/v0_9/basic_catalog/functions/basic_functions_api.ts
++++ b/web_core/src/v0_9/basic_catalog/functions/basic_functions_api.ts
+@@ -16,6 +16,12 @@
+ 
+ import {z} from 'zod';
+ 
++// Zod 3 coerced a missing object property to the string "undefined". Zod 4
++// rejects a missing non-optional key before applying that coercion. Preserve
++// this existing input contract without adding a new catalog default value.
++const legacyCoercedString = () =>
++  z.coerce.string().optional().transform(value => value === undefined ? 'undefined' : value);
++
+ // Arithmetic
+ /**
+  * Adds two numbers.
+@@ -348,7 +354,7 @@
+   name: 'formatString' as const,
+   returnType: 'any' as const,
+   schema: z.object({
+-    'value': z.coerce.string(),
++    'value': legacyCoercedString(),
+   }),
+ };
+ 
+@@ -384,7 +390,7 @@
+   returnType: 'string' as const,
+   schema: z.object({
+     'value': z.coerce.number(),
+-    'currency': z.coerce.string(),
++    'currency': legacyCoercedString(),
+     'decimals': z.coerce.number().optional(),
+     'grouping': z.boolean().default(true),
+   }),
+@@ -411,7 +417,7 @@
+   returnType: 'string' as const,
+   schema: z.object({
+     'value': z.any().refine(v => v !== undefined, 'Required'),
+-    'format': z.coerce.string(),
++    'format': legacyCoercedString(),
+   }),
+ };
+ 
+@@ -439,7 +445,7 @@
+     'two': z.coerce.string().optional(),
+     'few': z.coerce.string().optional(),
+     'many': z.coerce.string().optional(),
+-    'other': z.coerce.string(),
++    'other': legacyCoercedString(),
+   }),
+ };
+ 
+--- a/web_core/src/v0_9/catalog/schema_loader.ts
++++ b/web_core/src/v0_9/catalog/schema_loader.ts
+@@ -93,10 +93,17 @@
+   );
+ }
+ 
++// Zod 3 parsed required defaults, but optional fields bypassed them entirely.
++// Keep optional defaults as wire annotations; prefault validates required values.
++function withInputDefault(schema: z.ZodTypeAny, value: unknown, apply: boolean): z.ZodTypeAny {
++  return apply ? schema.prefault(value) : schema.meta({default: value});
++}
++
+ function convertPropertyToZod(
+   propSchema: Record<string, any>,
+   rootDoc?: Record<string, any>,
+   visitedPointers = new Set<string>(),
++  applyDefault = true,
+ ): z.ZodTypeAny {
+   if (!propSchema || typeof propSchema !== 'object') {
+     return z.unknown();
+@@ -119,7 +126,7 @@
+       visitedPointers.add(ref);
+       const localTarget = resolveJsonPointer(rootDoc, ref);
+       if (localTarget) {
+-        let zodType = convertPropertyToZod(localTarget, rootDoc, visitedPointers);
++        let zodType = convertPropertyToZod(localTarget, rootDoc, visitedPointers, applyDefault);
+         if (propSchema.description) {
+           zodType = zodType.describe(propSchema.description);
+         }
+@@ -138,7 +145,7 @@
+     if (enumBranch) {
+       let enumZod = convertEnumToZod(enumBranch.enum);
+       if (propSchema.default !== undefined) {
+-        enumZod = enumZod.default(propSchema.default);
++        enumZod = withInputDefault(enumZod, propSchema.default, applyDefault);
+       }
+       const desc =
+         propSchema.description ||
+@@ -154,7 +161,7 @@
+   if (Array.isArray(propSchema.enum) && propSchema.enum.length > 0) {
+     let enumZod = convertEnumToZod(propSchema.enum);
+     if (propSchema.default !== undefined) {
+-      enumZod = enumZod.default(propSchema.default);
++      enumZod = withInputDefault(enumZod, propSchema.default, applyDefault);
+     }
+     if (propSchema.description) {
+       enumZod = enumZod.describe(propSchema.description);
+@@ -176,30 +183,30 @@
+   switch (propSchema.type) {
+     case 'string': {
+       let s = z.string();
+-      if (propSchema.default !== undefined) s = s.default(propSchema.default) as any;
++      if (propSchema.default !== undefined) s = withInputDefault(s, propSchema.default, applyDefault) as any;
+       if (propSchema.description) s = s.describe(propSchema.description) as any;
+       return s;
+     }
+     case 'integer': {
+       let n: z.ZodTypeAny = z.number().int();
+-      if (propSchema.default !== undefined) n = n.default(propSchema.default) as any;
++      if (propSchema.default !== undefined) n = withInputDefault(n, propSchema.default, applyDefault) as any;
+       if (propSchema.description) n = n.describe(propSchema.description) as any;
+       return n;
+     }
+     case 'number': {
+       let n: z.ZodTypeAny = z.number();
+-      if (propSchema.default !== undefined) n = n.default(propSchema.default) as any;
++      if (propSchema.default !== undefined) n = withInputDefault(n, propSchema.default, applyDefault) as any;
+       if (propSchema.description) n = n.describe(propSchema.description) as any;
+       return n;
+     }
+     case 'boolean': {
+       let b = z.boolean();
+-      if (propSchema.default !== undefined) b = b.default(propSchema.default) as any;
++      if (propSchema.default !== undefined) b = withInputDefault(b, propSchema.default, applyDefault) as any;
+       if (propSchema.description) b = b.describe(propSchema.description) as any;
+       return b;
+     }
+     case 'object': {
+-      let obj = z.record(z.any());
++      let obj = z.record(z.string(), z.any());
+       if (propSchema.description) obj = obj.describe(propSchema.description) as any;
+       return obj;
+     }
+@@ -222,7 +229,9 @@
+     if (omitEnvelopeFields && (propName === 'component' || propName === 'id')) {
+       continue;
+     }
+-    const zodField = convertPropertyToZod(propSchema as any, rootDoc);
++    const zodField = convertPropertyToZod(
++      propSchema as any, rootDoc, new Set<string>(), requiredSet.has(propName),
++    );
+     shape[propName] = requiredSet.has(propName) ? zodField : zodField.optional();
+   }
+   return shape;
+@@ -316,7 +325,7 @@
+         const paramSchema =
+           fn.parameters && typeof fn.parameters === 'object'
+             ? convertFunctionArgsJsonSchemaToZod(fn.parameters, rootDoc)
+-            : z.record(z.any());
++            : z.record(z.string(), z.any());
+         result.push({
+           name: fn.name,
+           description: fn.description,
+@@ -335,7 +344,7 @@
+       const paramSchema =
+         argsSchema && typeof argsSchema === 'object'
+           ? convertFunctionArgsJsonSchemaToZod(argsSchema, rootDoc)
+-          : z.record(z.any());
++          : z.record(z.string(), z.any());
+       result.push({
+         name,
+         description: d.description,
+--- a/web_core/src/v0_9/catalog/types.ts
++++ b/web_core/src/v0_9/catalog/types.ts
+@@ -42,7 +42,7 @@
+ export interface FunctionApi {
+   readonly name: string;
+   readonly returnType: A2uiReturnType;
+-  readonly schema: z.ZodTypeAny;
++  readonly schema: z.ZodType<any, any>;
+   readonly description?: string;
+ }
+ 
+--- a/web_core/src/v0_9/nodes/ref-fields.ts
++++ b/web_core/src/v0_9/nodes/ref-fields.ts
+@@ -70,14 +70,14 @@
+   }
+ 
+   const unwrapped = unwrap(schema);
+-  if (unwrapped.schema._def.typeName !== 'ZodObject') {
++  if (unwrapped.schema.type !== 'object') {
+     refFieldsCache.set(schema, EMPTY_REF_FIELDS);
+     return EMPTY_REF_FIELDS;
+   }
+ 
+   const fields = new Map<string, RefKind>();
+ 
+-  const shape = (unwrapped.schema as z.AnyZodObject).shape as Record<string, z.ZodTypeAny>;
++  const shape = (unwrapped.schema as z.ZodObject).shape as Record<string, z.ZodTypeAny>;
+   for (const [key, value] of Object.entries(shape)) {
+     const field = unwrap(value);
+     if (marksChildList(field) || isChildListUnion(field.schema)) {
+@@ -88,17 +88,17 @@
+       fields.set(key, {kind: 'single'});
+       continue;
+     }
+-    if (field.schema._def.typeName === 'ZodArray') {
+-      const element = unwrap(field.schema._def.type as z.ZodTypeAny);
++    if (field.schema.type === 'array') {
++      const element = unwrap((field.schema as z.ZodArray<z.ZodType>).element);
+       // A plain array of component ids: the marker sits on the element
+       // rather than the property (z.array(ComponentIdSchema)).
+       if (marksComponentId(element)) {
+         fields.set(key, {kind: 'list'});
+         continue;
+       }
+-      if (element.schema._def.typeName === 'ZodObject') {
++      if (element.schema.type === 'object') {
+         const subKeys = new Set<string>();
+-        const elementShape = (element.schema as z.AnyZodObject).shape as Record<
++        const elementShape = (element.schema as z.ZodObject).shape as Record<
+           string,
+           z.ZodTypeAny
+         >;
+@@ -142,11 +142,14 @@
+     if (ref) {
+       refs.add(ref);
+     }
+-    const typeName = current._def.typeName;
+-    if (typeName === 'ZodOptional' || typeName === 'ZodNullable' || typeName === 'ZodDefault') {
+-      current = current._def.innerType;
+-    } else if (typeName === 'ZodEffects') {
+-      current = current._def.schema;
++    const type = current.type;
++    if (type === 'optional' || type === 'nullable' || type === 'default' || type === 'prefault') {
++      current = (current as z.ZodOptional<z.ZodType>).unwrap();
++    } else if (type === 'pipe') {
++      // Zod 4 represents transforms/preprocessors as pipes. Inspect the
++      // validated input, or the output schema after a preprocess transform.
++      const pipe = current as z.ZodPipe<z.ZodType, z.ZodType>;
++      current = pipe.in.type === 'transform' ? pipe.out : pipe.in;
+     } else {
+       return {schema: current, descriptions, refs};
+     }
+@@ -167,15 +170,15 @@
+ 
+ /** Matches the binder's STRUCTURAL detection for `ChildList`-shaped unions. */
+ function isChildListUnion(schema: z.ZodTypeAny): boolean {
+-  if (schema._def.typeName !== 'ZodUnion') {
++  if (schema.type !== 'union') {
+     return false;
+   }
+-  const options = schema._def.options as z.ZodTypeAny[];
++  const options = (schema as z.ZodUnion<z.ZodType[]>).options;
+   return options.some(o => {
+-    if (o._def.typeName !== 'ZodObject') {
++    if (o.type !== 'object') {
+       return false;
+     }
+-    const shape = (o as z.AnyZodObject).shape;
++    const shape = (o as z.ZodObject).shape;
+     return shape.componentId && shape.path;
+   });
+ }
+--- a/web_core/src/v0_9/processing/message-processor.ts
++++ b/web_core/src/v0_9/processing/message-processor.ts
+@@ -19,7 +19,7 @@
+ import {SurfaceGroupModel} from '../state/surface-group-model.js';
+ import {ComponentModel} from '../state/component-model.js';
+ import {Subscription} from '../common/events.js';
+-import {zodToJsonSchema} from 'zod-to-json-schema';
++import {toCatalogJsonSchema} from '../schema/to-json-schema.js';
+ import {z} from 'zod';
+ 
+ import {
+@@ -70,7 +70,7 @@
+   }
+ 
+   // 2. Invalid enum values
+-  if (err.code === 'invalid_enum_value' && Array.isArray((err as any).options)) {
++  if (String(err.code) === 'invalid_enum_value' && Array.isArray((err as any).options)) {
+     const optionsStr = (err as any).options.join(' | ');
+     return `${path}: Invalid enum value. Expected ${optionsStr}, received '${(err as any).received}'`;
+   }
+@@ -142,9 +142,7 @@
+     const components: Record<string, any> = {};
+ 
+     for (const [name, api] of catalog.components.entries()) {
+-      const zodSchema = zodToJsonSchema(api.schema, {
+-        target: 'jsonSchema2019-09',
+-      }) as any;
++      const zodSchema = toCatalogJsonSchema(api.schema);
+ 
+       // Clean up Zod-specific artifacts and process REF: tags
+       this.processRefs(zodSchema);
+@@ -166,9 +164,7 @@
+ 
+     const functions: any[] = [];
+     for (const api of catalog.functions.values()) {
+-      const zodSchema = zodToJsonSchema(api.schema, {
+-        target: 'jsonSchema2019-09',
+-      }) as any;
++      const zodSchema = toCatalogJsonSchema(api.schema);
+ 
+       this.processRefs(zodSchema);
+ 
+@@ -182,9 +178,7 @@
+ 
+     let theme: Record<string, any> | undefined;
+     if (catalog.themeSchema) {
+-      const zodSchema = zodToJsonSchema(catalog.themeSchema, {
+-        target: 'jsonSchema2019-09',
+-      }) as any;
++      const zodSchema = toCatalogJsonSchema(catalog.themeSchema);
+ 
+       this.processRefs(zodSchema);
+       theme = zodSchema.properties;
+@@ -363,7 +357,7 @@
+         if (componentApi) {
+           const validationResult = componentApi.schema.safeParse(properties);
+           if (!validationResult.success) {
+-            const formattedErrors = validationResult.error.errors.map(formatZodIssue).join(', ');
++            const formattedErrors = validationResult.error.issues.map(formatZodIssue).join(', ');
+             console.error(
+               "[A2UI Validation Error] Component '" + componentType + "' (" + id + '):',
+               {
+--- a/web_core/src/v0_9/rendering/generic-binder.ts
++++ b/web_core/src/v0_9/rendering/generic-binder.ts
+@@ -69,21 +69,22 @@
+ function getFieldBehavior(type: z.ZodTypeAny, propertyName?: string): BehaviorNode {
+   let current = type;
+ 
+-  let description = current._def?.description || '';
++  let description = current.description || '';
+ 
+   // Unwrap optionals/nullables/defaults
+   while (
+-    current._def.typeName === 'ZodOptional' ||
+-    current._def.typeName === 'ZodNullable' ||
+-    current._def.typeName === 'ZodDefault'
++    current.type === 'optional' ||
++    current.type === 'nullable' ||
++    current.type === 'default' ||
++    current.type === 'prefault'
+   ) {
+-    if (!description && current._def.description) {
+-      description = current._def.description;
++    if (!description && current.description) {
++      description = current.description;
+     }
+-    current = current._def.innerType;
++    current = (current as z.ZodOptional<z.ZodType>).unwrap();
+   }
+-  if (!description && current._def.description) {
+-    description = current._def.description;
++  if (!description && current.description) {
++    description = current.description;
+   }
+ 
+   if (propertyName === 'checks') {
+@@ -100,47 +101,47 @@
+ 
+   if (
+     (description.startsWith(DATA_BINDING_REF) || description.includes(DYNAMIC_REF_PREFIX)) &&
+-    current._def.typeName !== 'ZodObject' &&
+-    current._def.typeName !== 'ZodArray'
++    current.type !== 'object' &&
++    current.type !== 'array'
+   ) {
+     return {type: 'DYNAMIC'};
+   }
+ 
+-  // Structural matching for A2UI primitives using typeName to avoid dual-module instanceof issues
+-  if (current._def.typeName === 'ZodUnion') {
+-    const options = current._def.options as z.ZodTypeAny[];
++  // Structural matching for A2UI primitives using the public type discriminator to avoid dual-module instanceof issues
++  if (current.type === 'union') {
++    const options = (current as z.ZodUnion<z.ZodType[]>).options;
+ 
+     // ActionSchema is a union containing { event: ... }
+-    const isAction = options.some(o => o._def.typeName === 'ZodObject' && o._def.shape().event);
++    const isAction = options.some(o => o.type === 'object' && (o as z.ZodObject).shape.event);
+     if (isAction) return {type: 'ACTION'};
+ 
+     // Dynamic strings/values are unions containing DataBindingSchema { path: ... } but NOT { componentId: ... }
+     const isDynamic = options.some(
+-      o => o._def.typeName === 'ZodObject' && o._def.shape().path && !o._def.shape().componentId,
++      o => o.type === 'object' && (o as z.ZodObject).shape.path && !(o as z.ZodObject).shape.componentId,
+     );
+     if (isDynamic) return {type: 'DYNAMIC'};
+ 
+     // ChildList is a union containing an array and an object with { componentId, path }
+     const isChildList = options.some(
+-      o => o._def.typeName === 'ZodObject' && o._def.shape().componentId && o._def.shape().path,
++      o => o.type === 'object' && (o as z.ZodObject).shape.componentId && (o as z.ZodObject).shape.path,
+     );
+     if (isChildList) return {type: 'STRUCTURAL'};
+-  } else if (current._def.typeName === 'ZodString') {
++  } else if (current.type === 'string') {
+     // ComponentId falls back to STATIC since we can't perfectly identify it, which is fine because STATIC returns strings as-is.
+   }
+ 
+   // Recursive array scraping
+-  if (current._def.typeName === 'ZodArray') {
++  if (current.type === 'array') {
+     return {
+       type: 'ARRAY',
+-      element: getFieldBehavior(current._def.type),
++      element: getFieldBehavior((current as z.ZodArray<z.ZodType>).element),
+     };
+   }
+ 
+   // Recursive object scraping
+-  if (current._def.typeName === 'ZodObject') {
++  if (current.type === 'object') {
+     const shape: Record<string, BehaviorNode> = {};
+-    const objShape = current._def.shape();
++    const objShape = (current as z.ZodObject).shape;
+     for (const [key, value] of Object.entries(objShape)) {
+       shape[key] = getFieldBehavior(value as z.ZodTypeAny, key);
+     }
+--- a/web_core/src/v0_9/schema/client-to-server.ts
++++ b/web_core/src/v0_9/schema/client-to-server.ts
+@@ -29,7 +29,7 @@
+     sourceComponentId: z.string().describe('The id of the component that triggered the event.'),
+     timestamp: z.string().datetime().describe('An ISO 8601 timestamp of when the event occurred.'),
+     context: z
+-      .record(z.any())
++      .record(z.string(), z.any())
+       .describe(
+         "A JSON object containing the key-value pairs from the component's action.event.context, after resolving all data bindings.",
+       ),
+@@ -93,7 +93,7 @@
+   .object({
+     version: z.enum(['v0.9', 'v0.9.1']),
+     surfaces: z
+-      .record(z.object({}).passthrough())
++      .record(z.string(), z.object({}).passthrough())
+       .describe('A map of surface IDs to their current data models.'),
+   })
+   .strict();
+--- a/web_core/src/v0_9/schema/common-types.ts
++++ b/web_core/src/v0_9/schema/common-types.ts
+@@ -28,7 +28,7 @@
+ export const FunctionCallSchema = z
+   .object({
+     'call': z.string().describe('The name of the function to call.'),
+-    'args': z.record(z.any()).describe('Arguments passed to the function.'),
++    'args': z.record(z.string(), z.any()).describe('Arguments passed to the function.'),
+     'returnType': z
+       .enum(['string', 'number', 'boolean', 'array', 'object', 'any', 'void'])
+       .default('boolean'),
+@@ -111,18 +111,17 @@
+ export type ChildRefKind = 'component-id' | 'child-list';
+ 
+ /**
+- * Stamps the child-reference kind into the schema's zod metadata. Methods
+- * like `.describe()` and `.optional()` rebuild schemas from `_def`, so the
+- * flag survives them; the `REF:` description remains the wire-facing pointer
++ * Stamps the child-reference kind into Zod's metadata registry. Description
++ * clones inherit metadata; wrapper readers unwrap to the marked schema.
++ * The `REF:` description remains the wire-facing pointer
+  * the capabilities generator resolves into a `$ref`.
+  */
+ function markChildRef<T extends z.ZodTypeAny>(schema: T, ref: ChildRefKind): T {
+-  (schema._def as {a2uiChildRef?: ChildRefKind}).a2uiChildRef = ref;
+-  return schema;
++  return schema.meta({a2uiChildRef: ref});
+ }
+ 
+ export function childRefKindOf(schema: z.ZodTypeAny): ChildRefKind | undefined {
+-  return (schema._def as {a2uiChildRef?: ChildRefKind}).a2uiChildRef;
++  return schema.meta()?.a2uiChildRef as ChildRefKind | undefined;
+ }
+ 
+ export interface RefSchemaOptions {
+@@ -175,7 +174,7 @@
+       .object({
+         'event': z.object({
+           'name': z.string(),
+-          'context': z.record(DynamicValueSchema).optional(),
++          'context': z.record(z.string(), DynamicValueSchema).optional(),
+         }),
+       })
+       .describe('Triggers a server-side event.'),
+--- a/web_core/src/v0_9/schema/to-json-schema.ts
++++ b/web_core/src/v0_9/schema/to-json-schema.ts
+@@ -0,0 +1,43 @@
++/*
++ * Copyright 2024 Google LLC
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ * http://www.apache.org/licenses/LICENSE-2.0
++ */
++import {z} from 'zod';
++
++/**
++ * A2UI catalogs describe accepted input, not transformed output. Zod's Draft 7
++ * vocabulary is also valid in the existing 2019-09 catalog dialect. Retain that
++ * wire declaration, inline repeated schemas, and retain the legacy converter's
++ * closed-object description for objects whose parser strips unknown keys.
++ * Unsupported non-JSON types remain errors rather than becoming empty schemas.
++ */
++export function toCatalogJsonSchema(schema: z.ZodType): Record<string, any> {
++  const result = z.toJSONSchema(schema, {
++    target: 'draft-07',
++    io: 'input',
++    reused: 'inline',
++    override({zodSchema, jsonSchema}) {
++      delete jsonSchema.a2uiChildRef;
++      if (zodSchema._zod.def.type === 'object') {
++        if (!zodSchema._zod.def.catchall) jsonSchema.additionalProperties = false;
++        // The previous converter used isOptional(), including coercers that
++        // accept undefined. Preserve that input contract for function catalogs.
++        const shape = (zodSchema as z.ZodObject).shape;
++        const required = Object.keys(shape).filter(key => {
++          try {
++            return !shape[key].isOptional();
++          } catch {
++            // Match zod-to-json-schema's safeIsOptional fallback.
++            return false;
++          }
++        });
++        if (required.length) jsonSchema.required = required;
++        else delete jsonSchema.required;
++      }
++    },
++  });
++  return {...result, $schema: 'https://json-schema.org/draft/2019-09/schema#'};
++}
+--- a/lit/package.json
++++ b/lit/package.json
+@@ -60,6 +60,6 @@
+     "@lit/context": "^1.1.6",
+     "lit": "^3.3.3",
+     "signal-utils": "^0.21.1",
+-    "zod": "^3.25.76"
++    "zod": "4.6.6"
+   }
+-}
+\ No newline at end of file
++}

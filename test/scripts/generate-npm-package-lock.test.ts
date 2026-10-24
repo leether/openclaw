@@ -818,9 +818,11 @@ describe("generate-npm-package-lock", () => {
       { name: "minimatch", version: "10.2.5", required: "10.2.6" },
       { name: "brace-expansion", version: "5.0.9", required: "5.0.12" },
       { name: "ip-address", version: "10.5.0", required: "10.7.2" },
-    ].flatMap((entry) =>
-      ["11.20.0", "12.1.0"].map((npmVersion) => Object.assign({ npmVersion }, entry)),
-    ),
+    ]
+      .flatMap((entry) =>
+        ["11.20.0", "12.1.0"].map((npmVersion) => Object.assign({ npmVersion }, entry)),
+      )
+      .concat({ npmVersion: "12.2.1", name: "minimatch", version: "10.2.5", required: "10.2.6" }),
   )(
     "limits the npm@$npmVersion bundled exception for $name to its approved occurrence",
     ({ name, version, required, npmVersion }) => {
@@ -830,10 +832,13 @@ describe("generate-npm-package-lock", () => {
         "npm version",
         "path",
         "unbundled",
+        "package name",
+        "npm name",
+        "missing bundle marker",
       ] as const) {
         const installedNpmVersion =
           change === "npm version"
-            ? `${npmVersion.slice(0, npmVersion.lastIndexOf(".") + 1)}1`
+            ? `${npmVersion.slice(0, npmVersion.lastIndexOf(".") + 1)}99`
             : npmVersion;
         const bundledVersion = change === "bundle version" ? "0.0.1" : version;
         const npmPath =
@@ -843,22 +848,26 @@ describe("generate-npm-package-lock", () => {
           packages: {
             "": { dependencies: { npm: installedNpmVersion } },
             [npmPath]: {
+              ...(change === "npm name" ? { name: "other" } : {}),
               version: installedNpmVersion,
               dependencies: { [name]: bundledVersion },
               hasShrinkwrap: true,
             },
             [childPath]: {
               version: bundledVersion,
+              ...(change === "package name" ? { name: "other" } : {}),
               ...(change === "unbundled"
                 ? { inBundle: false }
-                : npmVersion === "12.1.0"
+                : npmVersion !== "11.20.0" && change !== "missing bundle marker"
                   ? { inBundle: true }
                   : {}),
             },
           },
         };
         const rules = { [name]: required };
-        const expectedPaths = change === "approved" ? [] : [childPath];
+        const approved =
+          change === "approved" || (change === "missing bundle marker" && npmVersion === "11.20.0");
+        const expectedPaths = approved ? [] : [childPath];
         expect(
           collectOverrideViolations(lockfile, rules).map((entry) => entry.path),
           change,
@@ -870,15 +879,15 @@ describe("generate-npm-package-lock", () => {
             new Map(),
           ).map((entry) => entry.path),
           change,
-        ).toEqual([childPath]);
+        ).toEqual(change === "npm name" ? [npmPath, childPath] : [childPath]);
         expect(disableDependencyShrinkwrapOverrideConflictSources(lockfile, rules), change).toEqual(
-          change === "approved" ? [] : [npmPath],
+          approved ? [] : [npmPath],
         );
       }
     },
   );
 
-  it.each(["11.20.0", "12.1.0"])(
+  it.each(["11.20.0", "12.1.0", "12.2.1"])(
     "authenticates npm@%s bundled lock entries against the pnpm-locked archive",
     (npmVersion) => {
       const root = tempDirs.make("openclaw-npm-bundle-");
@@ -911,6 +920,9 @@ describe("generate-npm-package-lock", () => {
         hashes = integrities,
       ) => collectPnpmLockViolations(value, pins, hashes, [], tarball);
       expect(check()).toEqual([]);
+      expect(collectPnpmLockViolations(lockfile, pins, integrities)).toEqual([
+        { packageKey: "@npmcli/arborist@9.9.2", path: childPath },
+      ]);
       expect(() => check(lockfile, Buffer.concat([bytes, Buffer.from("changed")]))).toThrow(
         "integrity",
       );
@@ -932,6 +944,25 @@ describe("generate-npm-package-lock", () => {
           change,
         ).toEqual([entryPath]);
       }
+    },
+  );
+
+  it.each([
+    { name: "brace-expansion", version: "5.0.9", required: "5.0.12" },
+    { name: "ip-address", version: "10.5.0", required: "10.7.2" },
+  ])(
+    "does not inherit old npm bundle exceptions for $name into npm@12.2.1",
+    ({ name, version, required }) => {
+      const childPath = `node_modules/npm/node_modules/${name}`;
+      const lockfile = {
+        packages: {
+          "node_modules/npm": { version: "12.2.1" },
+          [childPath]: { version, inBundle: true },
+        },
+      };
+      expect(
+        collectOverrideViolations(lockfile, { [name]: required }).map((entry) => entry.path),
+      ).toEqual([childPath]);
     },
   );
 

@@ -5,8 +5,9 @@
 # apply only to product categories, never to dependency files. For overlapping
 # categories, the first matching category supplies the review guidance.
 
-rollout:
-  pull-request: 152415
+# This fork enforces security review for every pull request immediately. The
+# upstream rollout PR belongs to a different repository; omitting rollout uses
+# the existing enforced mode, with no grandfathered or inactive window.
 
 exclude:
   test-directories:

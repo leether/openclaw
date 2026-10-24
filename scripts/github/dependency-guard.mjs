@@ -13,7 +13,6 @@ import {
   withApprovalRequest,
 } from "./guard-review.mjs";
 import {
-  GITHUB_API_REQUEST_TIMEOUT_MS,
   GITHUB_ERROR_BODY_MAX_BYTES,
   GITHUB_RESPONSE_BODY_MAX_BYTES,
   GitHubDiffDataError,
@@ -23,7 +22,6 @@ import {
   createIssueMutationHelpers,
   normalizeGuardLoginSet,
   readBoundedGitHubErrorText,
-  readBoundedGitHubJson,
   sanitizeGuardDisplayValue,
 } from "./guard-shared.mjs";
 import { loadSecurityReviewPolicy } from "./security-review-policy.mjs";
@@ -32,14 +30,8 @@ import { loadSecurityReviewPolicy } from "./security-review-policy.mjs";
 const dependencyChangeMarker = "<!-- openclaw:dependency-guard -->";
 const dependencyGraphGuardMarker = securityReviewContracts.dependency.commentMarker;
 const dependencyApprovalCommand = securityReviewContracts.dependency.approvalCommand;
-export const dependencyChangedLabel = "dependencies-changed";
-export {
-  GITHUB_API_REQUEST_TIMEOUT_MS,
-  GITHUB_ERROR_BODY_MAX_BYTES,
-  GITHUB_RESPONSE_BODY_MAX_BYTES,
-  readBoundedGitHubErrorText,
-  readBoundedGitHubJson,
-};
+const dependencyChangedLabel = "dependencies-changed";
+export { GITHUB_ERROR_BODY_MAX_BYTES, GITHUB_RESPONSE_BODY_MAX_BYTES, readBoundedGitHubErrorText };
 
 const autoscrubCommitMessage = "chore: remove dependency lockfile change";
 class AutoscrubUnavailableError extends Error {}
@@ -147,7 +139,7 @@ function stableJson(value) {
   return JSON.stringify(sorted);
 }
 
-export function markdownCode(value) {
+function markdownCode(value) {
   return `\`${sanitizeGuardDisplayValue(value).replaceAll("`", "\\`")}\``;
 }
 

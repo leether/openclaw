@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "treeSchema": "sorted-path-sha256-bytes-mode-array-v1",
+  "packages": [
+    {
+      "name": "@a2ui/web_core",
+      "version": "0.11.0",
+      "officialIntegrity": "sha512-HIrisBO5yAsNb1NFQRRSVLLNWaPlDu7LShwZ/j1qRUWT/W/J7g8dJFEKbq0/nUofI7ZiieDlDXQtrJmwo24Nzw==",
+      "patch": "patches/@a2ui__web_core@0.11.0.patch",
+      "patchSha256": "7b2b76f35d3f8231032d2c678ce4bbe68e1d1a8cec5e33684e3f55b8eac5e384",
+      "sourcePatch": "patches/a2ui-0.11.0-zod4.6.6-source.patch",
+      "sourcePatchSha256": "190b6be99bc5deee417392a6eb57e95d61b67f1c71bb768c4641d1981bd89e65",
+      "fileCount": 671,
+      "targetTreeSha256": "90dd2504820604552d78690591da3886ffa99837a546882a50615de38e3958e7",
+      "packageJsonVariants": [
+        {
+          "sha256": "0ac0405960aea588a75639a75aa44f963b23c070a1665975291fa42740da560f",
+          "bytes": 1545,
+          "mode": "0o644"
+        },
+        {
+          "sha256": "400ed4bf2adefd34d123319ad3ffa523a131524fb3865a966ed2c520edac1fd4",
+          "bytes": 1544,
+          "mode": "0o644"
+        }
+      ],
+      "packageJsonNormalization": "Only the exact official-final bytes or pnpm 12 removal of one trailing LF are accepted."
+    },
+    {
+      "name": "@a2ui/lit",
+      "version": "0.11.0",
+      "officialIntegrity": "sha512-HIJbubc9wKr/3zG1k1tGmZuI4XaAQrBVj7z6BY1fswLL7Q+q/8lwkiR4Pif2mMX88WCPcV2HoriPUk+X0PHnCA==",
+      "patch": "patches/@a2ui__lit@0.11.0.patch",
+      "patchSha256": "cc4900f947d624e4543501a4c1f090b93deb8167b0ae3f4b70a13af8e8ebc62a",
+      "sourcePatch": "patches/a2ui-0.11.0-zod4.6.6-source.patch",
+      "sourcePatchSha256": "190b6be99bc5deee417392a6eb57e95d61b67f1c71bb768c4641d1981bd89e65",
+      "fileCount": 234,
+      "targetTreeSha256": "171303ce6be8be33337ea06d5a81cf37b29826dc0c238b2eac7111a7f5e14a41",
+      "packageJsonVariants": [
+        {
+          "sha256": "09481a29617e467ad4f7e671ee64f16b7f7e80b5c50d0cb7762b1c6106a3a122",
+          "bytes": 1396,
+          "mode": "0o644"
+        },
+        {
+          "sha256": "9ab55cd9a57d6fa9b25a1c0f3cbaddb44dd0608ed7e4773acc242b02b3fa26e4",
+          "bytes": 1395,
+          "mode": "0o644"
+        }
+      ],
+      "packageJsonNormalization": "Only the exact official-final bytes or pnpm 12 removal of one trailing LF are accepted."
+    },
+    {
+      "name": "@discord/embedded-app-sdk",
+      "version": "2.5.0",
+      "officialIntegrity": "sha512-FNoe5PbSkoKEbqPubaBmq6tlEMOftMjR3gu55YrdrrKmBfKKM4i9P/Z+Zxl0RZdJcKviBwVcTyYMMPM/aGex/w==",
+      "patch": "patches/@discord__embedded-app-sdk@2.5.0.patch",
+      "patchSha256": "4be78847af08dac5135d2aab19b6bf7f812744244d880d9c573cd28c8660b4bc",
+      "sourcePatch": "patches/discord-2.5.0-zod4.6.6-source.patch",
+      "sourcePatchSha256": "17ec6e28c9109f6f234fa53f7c34f8872107c7579d5fb0c9dabb1724c47ca8d1",
+      "fileCount": 231,
+      "targetTreeSha256": "55ca2312208c200274bba44b6fb269cd79d769874b2453e685b542d42533a735",
+      "packageJsonVariants": [
+        {
+          "sha256": "8c3ac12abe98b863a95d972f27ad0df500716119cfe7e6a16558d70afedf813f",
+          "bytes": 2690,
+          "mode": "0o644"
+        }
+      ],
+      "packageJsonNormalization": "Only the exact official-final bytes or pnpm 12 removal of one trailing LF are accepted."
+    }
+  ]
+}

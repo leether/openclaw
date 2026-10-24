@@ -720,21 +720,63 @@ for (const [name, target] of Object.entries(${JSON.stringify(packages)})) {
   });
 });
 
-const ownerRules = readFileSync(".github/CODEOWNERS", "utf8")
-  .split("\n")
-  .map((line) => line.trim())
-  .filter((line) => line && !line.startsWith("#"))
-  .map((line) => {
-    const [pattern, ...owners] = line.split(/\s+/u);
-    return { matches: ignore({ ignorecase: false }).add(pattern ?? ""), owners };
-  });
+function parseOwnerRules(contents: string) {
+  return contents
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const [pattern, ...owners] = line.split(/\s+/u);
+      return { matches: ignore({ ignorecase: false }).add(pattern ?? ""), owners };
+    });
+}
 
-function ownersFor(path: string) {
+const ownerRules = parseOwnerRules(readFileSync(".github/CODEOWNERS", "utf8"));
+
+function ownersFor(path: string, rules = ownerRules) {
   // CODEOWNERS uses gitignore-style patterns with last matching ownership winning.
-  return ownerRules.findLast((rule) => rule.matches.ignores(path))?.owners ?? [];
+  return rules.findLast((rule) => rule.matches.ignores(path))?.owners ?? [];
+}
+
+function expectedSecurityOwners(repository: string) {
+  // These are independent repository contracts, never derived from CODEOWNERS.
+  switch (repository) {
+    case "openclaw/openclaw":
+      return ["@openclaw/openclaw-secops"];
+    case "leether/openclaw":
+      return ["@leether"];
+    default:
+      throw new Error(`No security ownership contract for ${repository}`);
+  }
 }
 
 describe("security review ownership", () => {
+  it.each([
+    { repository: "openclaw/openclaw", owner: "@openclaw/openclaw-secops", other: "@leether" },
+    { repository: "leether/openclaw", owner: "@leether", other: "@openclaw/openclaw-secops" },
+  ])("keeps $repository ownership exclusive and distinct", ({ repository, owner, other }) => {
+    const file = "scripts/github/security-review.mjs";
+    const rules = parseOwnerRules(`scripts/github/ ${other}\n${file} ${owner}`);
+    expect(ownersFor(file, rules)).toEqual(expectedSecurityOwners(repository));
+    for (const invalidOwners of [
+      other,
+      `${owner} ${other}`,
+      `${owner} @arbitrary`,
+      "@arbitrary",
+      "",
+    ]) {
+      const invalidRules = parseOwnerRules(`${file} ${invalidOwners}`);
+      expect(ownersFor(file, invalidRules)).not.toEqual(expectedSecurityOwners(repository));
+    }
+  });
+
+  it.each(["other/openclaw", "leether/other", "", "LEETHER/openclaw"])(
+    "rejects an unknown repository ownership contract %s",
+    (repository) => {
+      expect(() => expectedSecurityOwners(repository)).toThrow("No security ownership contract");
+    },
+  );
+
   it.each([
     ".github/CODEOWNERS",
     "SECURITY.md",
@@ -750,8 +792,10 @@ describe("security review ownership", () => {
     "scripts/github/guard-review.mjs",
     "scripts/github/guard-shared.mjs",
     "scripts/lib/bounded-response.mjs",
-  ])("requires SecOps alone for %s", (path) => {
-    expect(ownersFor(path)).toEqual(["@openclaw/openclaw-secops"]);
+  ])("requires the repository's exact security owner alone for %s", (path) => {
+    expect(ownersFor(path)).toEqual(
+      expectedSecurityOwners(process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw"),
+    );
   });
 
   it.each([

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -136,6 +136,72 @@ describe("Periphery intersection", () => {
 describe("shared OpenClawKit Periphery workflow", () => {
   const workflow = parse(readFileSync(WORKFLOW_PATH, "utf8")) as Workflow;
 
+  it.runIf(process.platform !== "win32").each([0, 37])(
+    "builds the configured macOS index before scanning and preserves build failure %s",
+    (buildStatus) => {
+      const root = mkdtempSync(join(tmpdir(), "openclaw-periphery-index-"));
+      const scan = workflow.jobs?.["scan-macos"]?.steps?.find(
+        (step) => step.name === "Scan shared kit",
+      );
+      try {
+        mkdirSync(join(root, "apps", "macos"), { recursive: true });
+        mkdirSync(join(root, "bin"));
+        writeFileSync(
+          join(root, "bin", "swift"),
+          `#!/bin/sh
+set -eu
+test "$*" = 'build --build-system native --scratch-path ../../.cache/periphery-swift --build-tests --enable-index-store'
+printf 'build\\n' >> "$RUNNER_TEMP/order"
+if [ "$BUILD_STATUS" != 0 ]; then exit "$BUILD_STATUS"; fi
+mkdir -p ../../.cache/periphery-swift/debug/index/store
+`,
+          { mode: 0o755 },
+        );
+        writeFileSync(
+          join(root, "bin", "periphery"),
+          `#!/bin/sh
+set -eu
+test -d ../../.cache/periphery-swift/debug/index/store
+case " $* " in *' --skip-build '*) ;; *) exit 91 ;; esac
+case " $* " in *' --clean-build '*) exit 92 ;; esac
+printf 'scan\\n' >> "$RUNNER_TEMP/order"
+printf '[]\\n'
+`,
+          { mode: 0o755 },
+        );
+        const result = spawnSync("bash", ["-c", scan?.run ?? ""], {
+          cwd: root,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            BUILD_STATUS: String(buildStatus),
+            RUNNER_TEMP: root,
+            PATH: `${join(root, "bin")}:${process.env.PATH}`,
+          },
+          timeout: 5_000,
+          maxBuffer: 64 * 1024,
+        });
+        expect(result.status, result.stderr).toBe(buildStatus);
+        expect(readFileSync(join(root, "order"), "utf8")).toBe(
+          buildStatus === 0 ? "build\nscan\n" : "build\n",
+        );
+        const statusPath = join(root, "shared-periphery-macos", "periphery.status");
+        if (buildStatus === 0) {
+          expect(readFileSync(statusPath, "utf8")).toBe("0\n");
+          expect(
+            JSON.parse(
+              readFileSync(join(root, "shared-periphery-macos", "periphery.json"), "utf8"),
+            ),
+          ).toEqual([]);
+        } else {
+          expect(existsSync(statusPath)).toBe(false);
+        }
+      } finally {
+        rmSync(root, { force: true, recursive: true });
+      }
+    },
+  );
+
   it.runIf(process.platform !== "win32").each(["scan-ios", "scan-macos"])(
     "fails %s when the scanner crashes while preserving its status artifact",
     (jobName) => {
@@ -146,6 +212,7 @@ describe("shared OpenClawKit Periphery workflow", () => {
         mkdirSync(join(root, "apps", platform), { recursive: true });
         mkdirSync(join(root, `shared-periphery-${platform}`));
         mkdirSync(join(root, "bin"));
+        writeFileSync(join(root, "bin", "swift"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
         writeFileSync(join(root, "bin", "periphery"), "#!/bin/sh\nexit 138\n", { mode: 0o755 });
         const result = spawnSync("bash", ["-c", scan?.run ?? ""], {
           cwd: root,

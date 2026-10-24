@@ -1,0 +1,217 @@
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -16,7 +16,7 @@
+         "eventemitter3": "^5.0.0",
+         "lodash.transform": "^4.6.0",
+         "uuid": "^11.0.0",
+-        "zod": "^3.9.8"
++        "zod": "4.6.6"
+       },
+       "devDependencies": {
+         "@babel/eslint-parser": "^7.15.7",
+@@ -11038,9 +11038,10 @@
+       }
+     },
+     "node_modules/zod": {
+-      "version": "3.23.8",
+-      "resolved": "https://registry.npmjs.org/zod/-/zod-3.23.8.tgz",
+-      "integrity": "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g==",
++      "version": "4.6.6",
++      "resolved": "https://registry.npmjs.org/zod/-/zod-4.6.6.tgz",
++      "integrity": "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==",
++      "license": "MIT",
+       "funding": {
+         "url": "https://github.com/sponsors/colinhacks"
+       }
+--- a/package.json
++++ b/package.json
+@@ -48,7 +48,7 @@
+     "eventemitter3": "^5.0.0",
+     "lodash.transform": "^4.6.0",
+     "uuid": "^11.0.0",
+-    "zod": "^3.9.8"
++    "zod": "4.6.6"
+   },
+   "devDependencies": {
+     "@babel/eslint-parser": "^7.15.7",
+@@ -56,9 +56,9 @@
+     "@commitlint/config-conventional": "^19.1.0",
+     "@jest/types": "^29.6.3",
+     "@rollup/plugin-commonjs": "^28.0.0",
++    "@rollup/plugin-json": "^6.1.0",
+     "@rollup/plugin-node-resolve": "^16.0.0",
+     "@rollup/plugin-typescript": "^12.0.0",
+-    "@rollup/plugin-json": "^6.1.0",
+     "@types/events": "^3.0.0",
+     "@types/jest": "^29.5.12",
+     "@typescript-eslint/eslint-plugin": "^8.6.0",
+--- a/src/schema/common.ts
++++ b/src/schema/common.ts
+@@ -61,7 +61,7 @@
+ // TODO afgiel -- next breaking change release
+ // remove Scopes and ScopesObject in favor of Types.OAuthScopes
+ export const ScopesObject = {
+-  ...AuthenticateResponseSchema.shape.scopes.element.overlayType._def.innerType.options[0].Values,
++  ...AuthenticateResponseSchema.shape.scopes.element.overlayType.unwrap().options[0].enum,
+   UNHANDLED: -1,
+ } as const;
+ 
+--- a/src/schema/events.ts
++++ b/src/schema/events.ts
+@@ -39,7 +39,7 @@
+   data: zod.object({}).passthrough(),
+ });
+ 
+-export interface EventArgs<Z extends zod.AnyZodObject = zod.AnyZodObject> {
++export interface EventArgs<Z extends zod.ZodObject = zod.ZodObject> {
+   payload: Z;
+   // BAD CODE - this arg is being called at runtime, but it's only used to
+   // enforce typescript. The perf hit is low and the DX with zod is worth it
+@@ -88,9 +88,14 @@
+   SPECTATE: 1,
+ } as const;
+ 
++// Retain the historical generic declaration for existing typed consumers.
++// Runtime dispatch continues to validate the event actually present in the payload.
+ export function parseEventPayload<K extends keyof typeof EventSchema = keyof typeof EventSchema>(
+   data: zod.infer<typeof EventFrame>,
+-): zod.infer<(typeof EventSchema)[K]['payload']> {
++): zod.infer<(typeof EventSchema)[K]['payload']>;
++export function parseEventPayload(
++  data: zod.infer<typeof EventFrame>,
++): zod.infer<(typeof EventSchema)[keyof typeof EventSchema]['payload']> {
+   const event = data.evt;
+   if (!(event in Events)) {
+     throw new Error(`Unrecognized event type ${data.evt}`);
+--- a/src/schema/index.ts
++++ b/src/schema/index.ts
+@@ -32,10 +32,18 @@
+   })
+   .passthrough();
+ 
++// Keep the original generic call signature; the implementation validates the
++// actual event/response and returns the corresponding checked union member.
+ export function parseIncomingPayload<K extends keyof typeof Events.EventSchema = keyof typeof Events.EventSchema>(
+   payload: zod.infer<typeof IncomingPayload>,
+ ):
+   | zod.infer<(typeof Events.EventSchema)[K]['payload']>
++  | zod.infer<typeof Responses.ResponseFrame>
++  | zod.infer<typeof Events.ErrorEvent>;
++export function parseIncomingPayload(
++  payload: zod.infer<typeof IncomingPayload>,
++):
++  | zod.infer<(typeof Events.EventSchema)[keyof typeof Events.EventSchema]['payload']>
+   | zod.infer<typeof Responses.ResponseFrame>
+   | zod.infer<typeof Events.ErrorEvent> {
+   const incoming = IncomingPayload.parse(payload);
+--- a/src/utils/commandFactory.ts
++++ b/src/utils/commandFactory.ts
+@@ -6,7 +6,7 @@
+ export function commandFactory<Args extends any, Response extends zod.ZodTypeAny>(
+   sendCommand: TSendCommand,
+   cmd: Exclude<Commands, Commands.SUBSCRIBE | Commands.UNSUBSCRIBE>,
+-  response: zod.ZodTypeAny,
++  response: Response,
+   transferTransform: (args: Args) => Transferable[] | undefined = () => undefined,
+ ): (args: Args) => Promise<zod.infer<Response>> {
+   const payload = ReceiveFramePayload.extend({
+@@ -17,7 +17,9 @@
+   return async (args: Args) => {
+     const reply = await sendCommand({cmd, args, transfer: transferTransform(args)});
+     const parsed = payload.parse(reply);
+-    return parsed.data;
++    // The same Response instance validated this data inside the envelope;
++    // the assertion restores Zod 4's lost generic object-property correlation.
++    return parsed.data as zod.infer<Response>;
+   };
+ }
+ 
+@@ -28,7 +30,7 @@
+   cmd: T,
+   transferTransform: (args: TArgs) => Transferable[] | undefined = () => undefined,
+ ): (sendCommand: TSendCommand) => (args: TArgs) => Promise<InferResponse<T>> {
+-  const response = Schemas[cmd].response;
++  const response: (typeof Schemas)[T]['response'] = Schemas[cmd].response;
+   const payload = ReceiveFramePayload.extend({
+     cmd: zod.literal(cmd),
+     data: response,
+@@ -42,6 +44,8 @@
+       transfer: transferTransform(args),
+     });
+     const parsed = payload.parse(reply);
+-    return parsed.data;
++    // The parser and result type use the same fixed command key; TypeScript loses
++    // this indexed correlation when the generated schema map becomes a union.
++    return parsed.data as InferResponse<T>;
+   };
+ }
+--- a/src/utils/compatCommandFactory.ts
++++ b/src/utils/compatCommandFactory.ts
+@@ -21,7 +21,7 @@
+ }: {
+   sendCommand: TSendCommand;
+   cmd: Exclude<Commands, Commands.SUBSCRIBE | Commands.UNSUBSCRIBE>;
+-  response: zod.ZodTypeAny;
++  response: Response;
+   fallbackTransform: (args: Args) => FallbackArgs;
+   transferTransform?: (args: Args | FallbackArgs) => Transferable[] | undefined;
+ }): (args: Args) => Promise<zod.infer<Response>> {
+@@ -34,13 +34,15 @@
+     try {
+       const reply = await sendCommand({cmd, args, transfer: transferTransform(args)});
+       const parsed = payload.parse(reply);
+-      return parsed.data;
++      // data has been validated by this exact Response inside the envelope.
++      return parsed.data as zod.infer<Response>;
+     } catch (error: any) {
+       if (error.code === RPCErrorCodes.INVALID_PAYLOAD) {
+         const fallbackArgs = fallbackTransform(args);
+         const reply = await sendCommand({cmd, args: fallbackArgs, transfer: transferTransform(fallbackArgs)});
+         const parsed = payload.parse(reply);
+-        return parsed.data;
++        // data has been validated by this exact Response inside the envelope.
++        return parsed.data as zod.infer<Response>;
+       } else {
+         throw error;
+       }
+--- a/src/utils/zodUtils.ts
++++ b/src/utils/zodUtils.ts
+@@ -1,5 +1,5 @@
+ import * as zod from 'zod';
+-import {ZodDefault, ZodTypeAny} from 'zod';
++import {ZodDefault, ZodType} from 'zod';
+ 
+ type ValueOf<T> = T[keyof T];
+ 
+@@ -32,26 +32,14 @@
+   );
+ }
+ 
+-export interface ZodEffectOverlayType<T extends ZodTypeAny> extends zod.ZodEffects<T> {
++// Retain the overlay contract while using Zod 4's public catch/default APIs.
++export type ZodEffectOverlayType<T extends ZodType> = zod.ZodCatch<T> & {
+   overlayType: T;
+-  // Don't allow accessing the intermediate wrapper
+-  innerType(): never;
+-  _def: never;
+-}
++};
+ 
+ /**
+  * Fallback to the default zod value if parsing fails.
+  */
+-export function fallbackToDefault<T extends ZodDefault<ZodTypeAny>>(schema: T): ZodEffectOverlayType<T> {
+-  const transform = zod.custom().transform((data) => {
+-    const res = schema.safeParse(data);
+-    if (res.success) {
+-      return res.data;
+-    }
+-    return schema._def.defaultValue();
+-  }) as ZodEffectOverlayType<T>;
+-  // Must set this inner schema so inspection works correctly
+-  transform.overlayType = schema;
+-  // transform._def.schema = schema;
+-  return transform;
++export function fallbackToDefault<T extends ZodDefault<ZodType>>(schema: T): ZodEffectOverlayType<T> {
++  return Object.assign(schema.catch(() => schema.parse(undefined)), {overlayType: schema});
+ }

@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parse, stringify } from "yaml";
 import {
   GITHUB_ERROR_BODY_MAX_BYTES,
   GITHUB_RESPONSE_BODY_MAX_BYTES,
@@ -80,8 +81,33 @@ function runDependencyGuard(
   routes: Record<string, unknown> = {},
   mode = "enforce",
   autoscrubToken: string | null = "fixture-autoscrub-token",
+  { configureRollout = true, repository = "openclaw/openclaw" } = {},
 ) {
   const dir = tempDirs.make("openclaw-dependency-guard-");
+  const sourceRoot = fileURLToPath(new URL("../../", import.meta.url));
+  // Historical rollout cases own their policy. Execute the real guard from an
+  // isolated root so a fork checkout cannot change the fixture's rollout contract.
+  cpSync(path.join(sourceRoot, "scripts/github"), path.join(dir, "scripts/github"), {
+    recursive: true,
+  });
+  symlinkSync(path.join(sourceRoot, "scripts/lib"), path.join(dir, "scripts/lib"), "junction");
+  symlinkSync(path.join(sourceRoot, "node_modules"), path.join(dir, "node_modules"), "junction");
+  mkdirSync(path.join(dir, ".github"));
+  const policy = parse(
+    readFileSync(path.join(sourceRoot, ".github/security-review-policy.yml"), "utf8"),
+  );
+  delete policy.rollout;
+  if (configureRollout) {
+    policy.rollout = { "pull-request": 152415 };
+  }
+  writeFileSync(path.join(dir, ".github/security-review-policy.yml"), stringify(policy));
+  const fixturePullPath = `/repos/${repository}/pulls/7`;
+  const fixtureIssuePath = `/repos/${repository}/issues/7`;
+  const fixturePullRequest = {
+    ...pullRequest,
+    base: { ...pullRequest.base, repo: { ...pullRequest.base.repo, full_name: repository } },
+    head: { ...pullRequest.head, repo: { ...pullRequest.head.repo, full_name: repository } },
+  };
   const eventPath = path.join(dir, "event.json");
   const fixturePath = path.join(dir, "fixture.json");
   const logPath = path.join(dir, "requests.jsonl");
@@ -89,7 +115,7 @@ function runDependencyGuard(
   writeFileSync(outputPath, "");
   writeFileSync(
     eventPath,
-    JSON.stringify({ repository: { default_branch: "main" }, pull_request: pullRequest }),
+    JSON.stringify({ repository: { default_branch: "main" }, pull_request: fixturePullRequest }),
   );
   writeFileSync(logPath, "");
   writeFileSync(
@@ -97,25 +123,25 @@ function runDependencyGuard(
     JSON.stringify({
       logPath,
       routes: {
-        [`GET ${pullPath}`]: pullRequest,
-        [`GET /repos/openclaw/openclaw/commits/${headSha}/statuses`]: [],
-        "GET /repos/openclaw/openclaw/pulls/152415": {
+        [`GET ${fixturePullPath}`]: fixturePullRequest,
+        [`GET /repos/${repository}/commits/${headSha}/statuses`]: [],
+        [`GET /repos/${repository}/pulls/152415`]: {
           number: 152415,
           state: "closed",
           merged: true,
           merged_at: "2025-12-01T00:00:00Z",
           merge_commit_sha: rolloutSha,
-          base: { ref: "main", repo: { full_name: "openclaw/openclaw" } },
+          base: { ref: "main", repo: { full_name: repository } },
         },
-        [`GET ${pullPath}/files`]: [{ filename: "pnpm-workspace.yaml" }],
-        [`GET ${comparisonPath}`]: {
+        [`GET ${fixturePullPath}/files`]: [{ filename: "pnpm-workspace.yaml" }],
+        [`GET /repos/${repository}/compare/${staleSha}...${headSha}`]: {
           base_commit: { sha: staleSha },
           merge_base_commit: { sha: staleSha },
         },
-        [`GET ${issuePath}/comments`]: [],
-        [`GET ${issuePath}/labels`]: [],
-        "GET /repos/openclaw/openclaw/collaborators/contributor/permission": { role_name: "write" },
-        "GET /repos/openclaw/openclaw/collaborators/maintainer/permission": {
+        [`GET ${fixtureIssuePath}/comments`]: [],
+        [`GET ${fixtureIssuePath}/labels`]: [],
+        [`GET /repos/${repository}/collaborators/contributor/permission`]: { role_name: "write" },
+        [`GET /repos/${repository}/collaborators/maintainer/permission`]: {
           role_name: "maintain",
         },
         ...routes,
@@ -127,14 +153,14 @@ function runDependencyGuard(
     [
       "--import",
       fileURLToPath(new URL("../fixtures/github-guard-fetch.mjs", import.meta.url)),
-      fileURLToPath(new URL("../../scripts/github/dependency-guard.mjs", import.meta.url)),
+      path.join(dir, "scripts/github/dependency-guard.mjs"),
     ],
     {
       encoding: "utf8",
       env: {
         GITHUB_TOKEN: "fixture-token",
         GITHUB_EVENT_PATH: eventPath,
-        GITHUB_REPOSITORY: "openclaw/openclaw",
+        GITHUB_REPOSITORY: repository,
         GITHUB_RUN_ID: "1",
         GITHUB_OUTPUT: outputPath,
         OPENCLAW_GUARD_TEST_FIXTURE: fixturePath,
@@ -574,6 +600,45 @@ describe("dependency guard script", () => {
       expect(result.stdout).toContain("grandfathered");
       expect(result.statuses).toEqual([]);
       expect(result.calls.every((call) => call.method === "GET")).toBe(true);
+      expect(result.calls.some((call) => call.path.includes("/dependency-graph/"))).toBe(false);
+    },
+  );
+
+  it.each(["detect", "autoscrub", "enforce"])(
+    "keeps an old fork lockfile PR enforced without a configured rollout in %s mode",
+    (mode) => {
+      const repository = "leether/openclaw";
+      const forkPullPath = `/repos/${repository}/pulls/7`;
+      const graphPath = `/repos/${repository}/dependency-graph/compare/${staleSha}...${headSha}`;
+      const result = runDependencyGuard(
+        {
+          [`GET ${forkPullPath}`]: {
+            ...pullRequest,
+            created_at: "2025-11-01T00:00:00Z",
+            base: { ...pullRequest.base, repo: { id: 1, full_name: repository } },
+            head: { ...pullRequest.head, repo: { id: 1, full_name: repository } },
+          },
+          [`GET ${forkPullPath}/files`]: [{ filename: "pnpm-lock.yaml" }],
+          [`GET ${graphPath}`]: [],
+        },
+        mode,
+        null,
+        { configureRollout: false, repository },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).not.toContain("grandfathered");
+      expect(result.calls.some((call) => call.path.endsWith("/pulls/152415"))).toBe(false);
+      expect(result.calls.filter((call) => call.path === graphPath)).toHaveLength(1);
+      // Enforcement republishes the missing-approval failure after its final recheck.
+      expect(result.statuses.map((call) => call.body?.state)).toEqual(
+        mode === "enforce" ? ["failure", "failure"] : ["failure"],
+      );
+      expect(result.calls.some((call) => call.path === "/graphql")).toBe(false);
+      if (mode === "detect") {
+        expect(result.output).toContain("autoscrub=true");
+      } else {
+        expect(result.stdout).toContain("/allow-dependencies-change");
+      }
     },
   );
 

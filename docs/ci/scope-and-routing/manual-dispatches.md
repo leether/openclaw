@@ -56,6 +56,31 @@ GitHub finalization untouched. See [Monthly Gateway extended-stable
 publication](https://github.com/openclaw/openclaw/blob/main/.agents/skills/release-openclaw-maintainer/references/extended-stable-publish.md)
 for commands and recovery.
 
+### Fork Linux-only screenshot deferral
+
+The `fork_linux_only` input defaults to `false`. On `leether/openclaw` only,
+maintainers can explicitly set it on an exact-head `release_gate=true` dispatch
+for an open, unmerged, same-repository pull request targeting `main`. The PR head, workflow
+revision, checked-out revision, and `github.sha` must all match the exact
+`target_ref`; the dispatched branch must be that PR's head branch. The manifest
+re-reads current PR metadata and fails closed if the PR closes or its head moves.
+
+This mode requires the default runner and shape, full validation and release
+scope, and no historical, release-candidate, target-context, qualification,
+parent-dispatch, or npm-scope inputs. It does not make this fork the canonical
+repository or admit any canonical publication path.
+
+The manifest emits one `defer_ios_screenshots` decision with a scope receipt.
+Only `ios-screenshot-shard` and `ios-screenshot-evidence` use it, in both job
+selection and `ci-gate`. Their coverage remains **deferred and unverified**
+because the screenshot runner billing allowance is unavailable. Prior red or
+unrun records remain evidence; skipped jobs do not become successful screenshot
+proof. All other existing selection rules and failure checks are unchanged,
+including Linux, Gateway, Control UI, security, and selected native checks.
+The separate fork complete-package installation and restoration qualification
+is still required. This scoped run does not produce the full cross-platform
+validation receipt or establish iOS qualification.
+
 ### Windows Testbox Probe
 
 The manual `windows-testbox-probe.yml` workflow keeps Windows/WSL probing and

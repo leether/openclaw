@@ -10,6 +10,8 @@ minimumReleaseAgeStrict: true
 
 # Trusted Codex runtimes are outside the dependency cooldown.
 minimumReleaseAgeExclude:
+  # GHSA-27r3-jxmh-p828; remove after 2026-10-29T11:39:38.614Z.
+  - "body-parser@2.4.0"
   # Security fix for GHSA-68fv-2mgg-jv7q (released 2026-09-30); remove after 2026-10-07T14:08:09.382Z.
   - "source-map-js@1.2.2"
   - "@openai/codex"
@@ -33,6 +35,11 @@ verifyDepsBeforeRun: false
 blockExoticSubdeps: true
 
 overrides:
+  # Exact approved package migrations; package patches also rebuild embedded code.
+  "@a2ui/web_core@0.11.0>zod": 4.6.6
+  "@a2ui/lit@0.11.0>zod": 4.6.6
+  "@discord/embedded-app-sdk@2.5.0>zod": 4.6.6
+  "@a2ui/web_core@0.11.0>zod-to-json-schema": "-"
   # Memory LanceDB supplies vectors; WhatsApp prepares thumbnails with Rastermill.
   "@lancedb/lancedb>@huggingface/transformers": "-"
   "baileys>sharp": "-"
@@ -52,8 +59,11 @@ overrides:
   "@aws-sdk/xml-builder": 3.972.40
   "@hono/node-server": 2.1.1
   axios: 1.20.0
+  body-parser: 2.4.0
   fast-uri: 4.2.1
-  follow-redirects: 1.16.0
+  follow-redirects: 1.16.1
+  # Vite security patch: keep its new bundler path at the minimum compatible patch.
+  "vite@8.3.3>rolldown": 1.2.11
   defu: 6.1.7
   fast-xml-parser: 5.11.1
   request: "npm:@cypress/request@4.0.1"
@@ -69,11 +79,14 @@ overrides:
   "mailauth@5.0.3>nodemailer": 10.0.10
   "mailauth@5.0.3>joi": 18.2.9
   # Mailauth pins vulnerable Undici; remove when its direct dependency is fixed.
-  "mailauth@5.0.3>undici": 8.10.2
+  "mailauth@5.0.3>undici": 8.12.2
+  # Bind the two Teams authentication consumers to the reviewed security fix.
+  "@azure/identity@4.13.3>@azure/msal-node": 7.1.0
+  "@microsoft/teams.apps@2.1.0>@azure/msal-node": 7.1.0
   minimatch: 10.2.6
   path-to-regexp: 8.4.2
   proxy-addr: 2.0.8
-  qs: 6.16.0
+  qs: 6.16.1
   node-domexception: "npm:@nolyfill/domexception@1.0.28"
   typebox: 1.3.34
   tar: 7.5.22
@@ -85,6 +98,10 @@ overrides:
   yauzl: 3.4.0
   protobufjs: 8.8.0
   uuid: 14.0.2
+  # These v4 consumers retain the vulnerable patch; do not override v3 peers.
+  "@agentclientprotocol/claude-agent-acp@0.79.0>zod": 4.6.6
+  "@anthropic-ai/claude-agent-sdk@0.3.274>zod": 4.6.6
+  "@github/copilot-sdk@1.0.14>zod": 4.6.6
 
 allowBuilds:
   onnxruntime-node: false
@@ -119,6 +136,9 @@ packageExtensions:
       typescript: 5.9.3
 
 patchedDependencies:
+  "@a2ui/web_core@0.11.0": patches/@a2ui__web_core@0.11.0.patch
+  "@a2ui/lit@0.11.0": patches/@a2ui__lit@0.11.0.patch
+  "@discord/embedded-app-sdk@2.5.0": patches/@discord__embedded-app-sdk@2.5.0.patch
   "baileys@7.0.0-rc14": patches/baileys@7.0.0-rc14.patch
   "matrix-js-sdk@42.4.0": patches/matrix-js-sdk@42.4.0.patch
   "@novnc/novnc@1.7.0": patches/@novnc__novnc@1.7.0.patch

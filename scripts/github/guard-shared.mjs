@@ -4,7 +4,7 @@ import { readBoundedResponseText } from "../lib/bounded-response.mjs";
 
 export const GITHUB_ERROR_BODY_MAX_BYTES = 64 * 1024;
 export const GITHUB_RESPONSE_BODY_MAX_BYTES = 4 * 1024 * 1024;
-export const GITHUB_API_REQUEST_TIMEOUT_MS = 30_000;
+const GITHUB_API_REQUEST_TIMEOUT_MS = 30_000;
 export const SECURITY_REVIEW_CHECK_INTERVAL_MS = 30_000;
 
 const githubApiRetryStatuses = new Set([500, 502, 503, 504]);
@@ -336,7 +336,7 @@ export async function readBoundedGitHubErrorText(
   });
 }
 
-export async function readBoundedGitHubJson(
+async function readBoundedGitHubJson(
   response,
   maxBytes = GITHUB_RESPONSE_BODY_MAX_BYTES,
   options = {},

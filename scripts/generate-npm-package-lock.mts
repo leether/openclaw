@@ -1159,6 +1159,13 @@ const NPM_BUNDLED_DEPENDENCY_POLICIES = new Map<string, NpmBundledDependencyPoli
       ]),
     },
   ],
+  [
+    "12.2.1",
+    {
+      allowMissingBundleMarker: false,
+      exceptions: new Map([["node_modules/npm/node_modules/minimatch", "10.2.5"]]),
+    },
+  ],
 ]);
 
 function isApprovedNpmBundledDependency(packages: UnknownRecord, lockPath: string) {
