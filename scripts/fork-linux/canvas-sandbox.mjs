@@ -125,7 +125,8 @@ export async function attestSandbox(browser, pid, authority) {
     await page.goto("chrome://sandbox", { waitUntil: "load", timeout: 4000 });
     status = await page.evaluate(async () => {
       // Chromium's own Linux status page imports this official module.
-      const { loadTimeData } = await import("chrome://resources/js/load_time_data.js");
+      const statusModuleUrl = new URL("chrome://resources/js/load_time_data.js");
+      const { loadTimeData } = await import(statusModuleUrl.href);
       return Object.fromEntries(
         ["suid", "userNs", "pidNs", "netNs", "seccompBpf", "seccompTsync", "sandboxGood"].map(
           (key) => [key, loadTimeData.getBoolean(key)],

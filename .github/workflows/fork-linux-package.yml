@@ -88,7 +88,13 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fork-linux-package-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
-          path: ${{ env.FORK_ARTIFACT_DIR }}
+          # The private verifier consumes these four sealed inputs. Browser profile
+          # caches must not expand its bounded archive inventory.
+          path: |
+            ${{ env.FORK_ARTIFACT_DIR }}/qualification.json
+            ${{ env.FORK_ARTIFACT_DIR }}/openclaw-linux-x64-runtime.tar.gz
+            ${{ env.FORK_ARTIFACT_DIR }}/node-verification/node-v24.22.0-linux-x64.tar.xz
+            ${{ env.FORK_ARTIFACT_DIR }}/node-verification/node-v24.22.1-linux-x64.tar.xz
           compression-level: 0
           if-no-files-found: error
           retention-days: 90
@@ -98,36 +104,18 @@ jobs:
         with:
           name: fork-linux-diagnostics-${{ env.QUALIFIED_SHA }}-${{ github.run_attempt }}
           path: |
-            ${{ env.FORK_ARTIFACT_DIR }}/source-inputs.sha256
+            ${{ env.FORK_ARTIFACT_DIR }}
             ${{ runner.temp }}/fork-linux-resource-scope.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-npm-audit.json
-            ${{ env.FORK_ARTIFACT_DIR }}/npm-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-npm-proof-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-package-lock.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-dependencies.json
-            ${{ env.FORK_ARTIFACT_DIR }}/patched-source-inputs-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/canvas-capture.json
-            ${{ env.FORK_ARTIFACT_DIR }}/discord-capture.json
-            ${{ env.FORK_ARTIFACT_DIR }}/discord-installed-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/msteams-capture.json
-            ${{ env.FORK_ARTIFACT_DIR }}/msteams-installed-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-canvas-proof-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-discord-proof-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-msteams-proof-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-undici-proof-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/canvas-browser/*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/canvas-sandbox-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/canvas-sandbox-owner.txt
-            ${{ env.FORK_ARTIFACT_DIR }}/canvas-sandbox-preflight/*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/native-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/installed-http-proof-*.json
-            ${{ env.FORK_ARTIFACT_DIR }}/restored-*.json
             ${{ runner.temp }}/fork-http-synthetic-*/report.json
             ${{ runner.temp }}/fork-http-synthetic-*/process.log
             ${{ runner.temp }}/fork-http-synthetic-*/gateway.log
             ${{ runner.temp }}/fork-restored-http-synthetic-*/report.json
             ${{ runner.temp }}/fork-restored-http-synthetic-*/process.log
             ${{ runner.temp }}/fork-restored-http-synthetic-*/gateway.log
+            !${{ env.FORK_ARTIFACT_DIR }}/qualification.json
+            !${{ env.FORK_ARTIFACT_DIR }}/openclaw-linux-x64-runtime.tar.gz
+            !${{ env.FORK_ARTIFACT_DIR }}/node-verification/node-v24.22.0-linux-x64.tar.xz
+            !${{ env.FORK_ARTIFACT_DIR }}/node-verification/node-v24.22.1-linux-x64.tar.xz
           if-no-files-found: ignore
           retention-days: 90
   resolve-lock:

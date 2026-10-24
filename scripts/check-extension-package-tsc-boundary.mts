@@ -21,6 +21,10 @@ import {
   resolveTimerTimeoutMs,
 } from "../packages/normalization-core/src/number-coercion.ts";
 import { collectFilesSync } from "./check-file-utils.ts";
+import {
+  createBoundaryDiagnosticRelayGroup,
+  createBoundaryDiagnostics,
+} from "./lib/boundary-phase-diagnostics.mts";
 import { appendBoundedTail, formatBoundedTail } from "./lib/bounded-output-tail.mjs";
 import {
   portableRelativePath,
@@ -75,6 +79,7 @@ type RunNodeStepParams = {
   env?: NodeJS.ProcessEnv;
   abortController?: AbortController;
   onFailure?: (error: ReturnType<typeof attachStepFailureMetadata>) => void;
+  observePreparationLifecycle?: boolean;
 };
 type BoundaryStep = {
   label: string;
@@ -86,6 +91,7 @@ type BoundaryStep = {
 };
 type BoundaryCheckParams = { rootDir?: string; processObject?: Pick<EventEmitter, "on" | "off"> };
 const repoRoot = resolveRepoRoot(import.meta.url);
+const createDiagnosticRelay = createBoundaryDiagnosticRelayGroup();
 const compilerWorker = resolve(repoRoot, "scripts/compile-extension-boundary.mts");
 const prepareBoundaryArtifactsArgs = distArtifactEntryArgs(
   resolve(repoRoot, "scripts/prepare-extension-package-boundary-artifacts.mts"),
@@ -290,6 +296,12 @@ export async function runNodeStepAsync(
   const startedAt = Date.now();
   let stdout = createStepOutputCapture();
   let stderr = createStepOutputCapture();
+  const relayDiagnostic = createDiagnosticRelay(params.env ?? process.env);
+  const diagnostic = params.observePreparationLifecycle
+    ? createBoundaryDiagnostics("checker", "preparation", { env: params.env ?? process.env })
+    : undefined;
+  const settled = diagnostic?.start("managed-settlement");
+  let managedSettled = false;
   let receivedSignal: NodeJS.Signals | undefined;
   let activeChild: ChildProcess | undefined;
   try {
@@ -313,6 +325,23 @@ export async function runNodeStepAsync(
       },
       onReady(child) {
         activeChild = child;
+        if (diagnostic) {
+          diagnostic.mark("child-ready", "info", child.pid ? { childPid: child.pid } : {});
+          child.once("exit", (exitCode, signal) =>
+            diagnostic.mark("child-exit", "end", {
+              ...(exitCode !== null && exitCode >= 0 ? { exitCode } : {}),
+              signaled: signal === null ? 0 : 1,
+            }),
+          );
+          child.once("close", (exitCode, signal) =>
+            diagnostic.mark("child-close", "end", {
+              ...(exitCode !== null && exitCode >= 0 ? { exitCode } : {}),
+              signaled: signal === null ? 0 : 1,
+            }),
+          );
+          child.stdout!.once("close", () => diagnostic.mark("stdout-close", "end"));
+          child.stderr!.once("close", () => diagnostic.mark("stderr-close", "end"));
+        }
         child.stdout!.setEncoding("utf8");
         child.stderr!.setEncoding("utf8");
         child.stdout!.on("data", (chunk) => {
@@ -320,9 +349,12 @@ export async function runNodeStepAsync(
         });
         child.stderr!.on("data", (chunk) => {
           stderr = appendBoundedTail(stderr, chunk, STEP_OUTPUT_MAX_CHARS);
+          relayDiagnostic(chunk);
         });
       },
     });
+    managedSettled = true;
+    settled?.(code !== null && code >= 0 ? { exitCode: code } : {});
     if (receivedSignal) {
       process.exitCode = signalExitCode(receivedSignal);
       throw new Error(`${label} interrupted by ${receivedSignal}`);
@@ -338,6 +370,9 @@ export async function runNodeStepAsync(
       elapsedMs: Date.now() - startedAt,
     };
   } catch (error) {
+    if (!managedSettled) {
+      diagnostic?.mark("managed-settlement", "failed");
+    }
     const original = toErrorObject(error, "Boundary step failed");
     const code = "code" in original ? original.code : undefined;
     const kind =
@@ -481,6 +516,7 @@ async function runCompileCheck(extensionIds: string[], selectedPreparation: bool
           : []),
     ],
     420_000,
+    { observePreparationLifecycle: true },
   );
   process.stdout.write(preparation.stdout);
   const prepElapsedMs = Date.now() - prepStartedAt;

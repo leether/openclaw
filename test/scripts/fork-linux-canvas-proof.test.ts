@@ -247,6 +247,7 @@ test("private short Chromium TMPDIR admits an actual singleton Unix socket", asy
   const directory = await createBrowserTemporaryDirectory();
   const socket = verifyBrowserTemporaryPath(directory.path);
   assert.equal(directory.mode, 0o700);
+  assert.ok(process.getuid, "The Unix socket proof requires a process UID");
   assert.equal(directory.uid, process.getuid());
   fs.mkdirSync(path.dirname(socket), { mode: 0o700 });
   const server = createServer((connection) => connection.end("synthetic-socket-ok"));

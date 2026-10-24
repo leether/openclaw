@@ -78,8 +78,11 @@ module.assert_scope_finished(p['before'],p['state'],p['remaining'],p['identity']
         ],
         { encoding: "utf8", timeout: 10000, maxBuffer: 65536 },
       );
-      if (mode === "removed" || mode === "empty") expect(result.status).toBe(0);
-      else expect(result.status).not.toBe(0);
+      if (mode === "removed" || mode === "empty") {
+        expect(result.status).toBe(0);
+      } else {
+        expect(result.status).not.toBe(0);
+      }
     },
   );
   it("keeps manual lock resolution separate from default qualification", () => {
@@ -109,5 +112,38 @@ module.assert_scope_finished(p['before'],p['state'],p['remaining'],p['identity']
         (step: { name?: string }) => step.name === "Preserve bounded synthetic diagnostics",
       ),
     ).toBe(false);
+  });
+
+  it("publishes only the four private-verifier inputs and preserves the remaining evidence", () => {
+    const workflow = YAML.parse(readFileSync(".github/workflows/fork-linux-package.yml", "utf8"));
+    type Upload = { name: string; if: string; with: { path: string; "retention-days": number } };
+    const steps: Upload[] = workflow.jobs.qualify.steps;
+    const qualified = steps.find(
+      (step) => step.name === "Upload qualified package and offline runtime",
+    );
+    const diagnostics = steps.find(
+      (step) => step.name === "Preserve bounded synthetic diagnostics",
+    );
+    expect(qualified).toBeDefined();
+    expect(diagnostics).toBeDefined();
+    const root = "${{ env.FORK_ARTIFACT_DIR }}";
+    const inputs = [
+      "qualification.json",
+      "openclaw-linux-x64-runtime.tar.gz",
+      "node-verification/node-v24.22.0-linux-x64.tar.xz",
+      "node-verification/node-v24.22.1-linux-x64.tar.xz",
+    ].map((file) => `${root}/${file}`);
+    expect(qualified?.if).toBe("success()");
+    expect(qualified?.with.path.trim().split("\n")).toEqual(inputs);
+    expect(qualified?.with["retention-days"]).toBe(90);
+    const preserved = diagnostics?.with.path.trim().split("\n") ?? [];
+    expect(diagnostics?.if).toBe("always()");
+    expect(diagnostics?.with["retention-days"]).toBe(90);
+    expect(preserved).toContain(root);
+    // All non-input evidence, including browser state and SHA256SUMS, stays in
+    // the diagnostic artifact. The checksum inventory spans both artifacts.
+    expect(preserved.filter((pattern) => pattern.startsWith("!"))).toEqual(
+      inputs.map((file) => `!${file}`),
+    );
   });
 });

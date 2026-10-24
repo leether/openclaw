@@ -4258,6 +4258,7 @@ jobs:
           SDK_DIFF_BASE: ${{ needs.preflight.outputs.diff_base_revision }}
           SDK_DIFF_HEAD: ${{ needs.preflight.outputs.diff_head_revision }}
           ADDITIONAL_CHECK_GROUP: ${{ matrix.group }}
+          OPENCLAW_EXTENSION_BOUNDARY_DIAGNOSTICS: ${{ matrix.group == 'extension-package-boundary' && '1' || '' }}
           TYPE_GRAPH_BOUNDARY_OWNER: ${{ needs.preflight.outputs.type_graph_boundary_owner }}
           CHANGED_CORE_TEST_PATHS_JSON: ${{ needs.preflight.outputs.changed_core_test_paths_json }}
           COMPATIBILITY_TARGET: *historical_target
