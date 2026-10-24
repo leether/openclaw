@@ -2,6 +2,47 @@
 
 Keep existing insertion anchors when extending these patches: pnpm 12 can apply a zero-context, zero-length insertion one line early. After regeneration and installation, verify installed files against the patch's target blob hashes before testing.
 
+## Exact Zod 4 consumer migrations
+
+`@a2ui/web_core@0.11.0`, `@a2ui/lit@0.11.0`, and
+`@discord/embedded-app-sdk@2.5.0` have approved exact-version migrations to
+Zod 4.6.6. `zod4-consumers.json` records each original registry SRI, pnpm patch
+SHA-256, source-diff SHA-256, and complete published-file tree digest. pnpm
+retains the original registry integrity and applies the separate patch; these
+are downstream derivatives, not new upstream releases. Each package includes
+its original license and a patch notice. The SDK also includes the exact Zod
+MIT notice for its embedded implementation.
+
+The paired provenance-only source diffs are
+`a2ui-0.11.0-zod4.6.6-source.patch` and
+`discord-2.5.0-zod4.6.6-source.patch`. They are separately allowed exact paths,
+not additional pnpm registrations. Generated JavaScript, declarations, and maps
+come from these source migrations. The SDK's old embedded Zod implementation is
+replaced; changing its bare dependency alone would not fix that implementation.
+Exact parent overrides select Zod 4.6.6, and the web_core parent removes its
+obsolete `zod-to-json-schema` dependency through the normal resolver.
+
+A2UI preserves the tested defaults, catalog/ref behavior, JSONL consumers, and
+browser interactions. Native JSON Schema conversion expands some formerly
+dangling local references, so wire schemas are not universally byte-identical.
+Two upstream legacy schema test files still import the removed converter; they
+are not production entrypoints or included in the installed-consumer proof.
+This qualification does not claim all upstream Angular or conformance tests.
+
+The fork Linux qualification binds the actual patched inputs before and after
+the canonical full build. It exercises the installed/restored Canvas register
+and both browser bundles, and separately packages and installs the Discord
+plugin with the canonical plugin owner. Real npm graphs, high/critical audits,
+SDK ESM/CJS entries, generated SDK assets, and offline restore are separate
+required proofs. Published-file inventories exclude package-manager-generated
+`node_modules` links and shims. For A2UI, only the two exact recorded manifest
+byte variants (with or without the final LF) are accepted.
+
+Retire these patches only when an upstream replacement passes the same real
+consumer, type, security, installation, and restore contracts. An unpatched
+rollback restores the old parser and is not security-equivalent. No automatic
+retirement or LIVE change is authorized by this documentation.
+
 `@openclaw/proxyline@0.3.12` has an approved public export of its existing
 `ProxylineNodeProxyAgent` class. The shared Node adapter uses that dual-protocol
 agent to retain per-request `NO_PROXY` routing even when every configured proxy

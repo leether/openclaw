@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { resolveTestGitCommits } from "../.github/actions/git-owner/test-prerequisites.mjs";
 import {
   formatIosSimulatorSelectionSummary,
+  resolveForkLinuxScope,
   resolveIosSimulatorTestSelection,
 } from "./lib/ci-ios-smoke-plan.mjs";
 import { resolveReleaseContextIdentity } from "./lib/release-context.mjs";
@@ -42,6 +43,7 @@ const targetContextTarget =
   checkoutRevision !== workflowRevision;
 const compatibilityTarget = historicalTarget || releaseCandidateTarget || targetContextTarget;
 const frozenTarget = eventName === "workflow_dispatch" && checkoutRevision !== workflowRevision;
+const forkLinuxScope = resolveForkLinuxScope({ env: process.env, compatibilityTarget });
 
 // Frozen releases use current trusted shard budgets while discovery
 // and test execution keep the candidate checkout as their root.
@@ -1355,6 +1357,7 @@ if (runCheckPlan && runNodeFull && !releaseFastLane) {
 }
 
 const manifest = {
+  ...forkLinuxScope,
   release_scope: releaseScope,
   release_fast_lane: releaseFastLane,
   validation_tier: validationTier,
@@ -1816,6 +1819,16 @@ for (const [key, value] of Object.entries(manifest)) {
   );
 }
 console.log(`CI release scope: ${releaseScope}`);
+if (forkLinuxScope.defer_ios_screenshots) {
+  console.log(`::notice title=Deferred iOS screenshots::${forkLinuxScope.ios_screenshot_reason}`);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(
+      process.env.GITHUB_STEP_SUMMARY,
+      `### Fork Linux-only scope\n\n${forkLinuxScope.ios_screenshot_reason}\n\n` +
+        `Scope receipt: \`${JSON.stringify(forkLinuxScope.ios_screenshot_scope)}\`\n\n`,
+    );
+  }
+}
 if (releaseFastLane) {
   const running = `security-fast, check-shard (lint, prod/test types, guards, dependencies), check-docs when docs changed, and ${nodeTestShards.length} changed Node rows${runBuildArtifacts ? ", build-artifacts for selected owners" : ""}${dockerSeedLanes.length ? ", owner-selected Docker seed" : ""}${runQaSmokeCi ? ", owner-selected QA Smoke" : ""}`;
   console.log(

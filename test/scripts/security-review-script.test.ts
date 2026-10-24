@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse, stringify } from "yaml";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -83,8 +84,25 @@ const lockfileRoutes = {
   },
 };
 
-function evaluate(routes: Record<string, unknown> = {}, mode = "enforce", deadline?: number) {
+function evaluate(
+  routes: Record<string, unknown> = {},
+  mode = "enforce",
+  deadline?: number,
+  configureRollout = true,
+) {
   const root = tempDirs.make("security-review-");
+  // Historical rollout cases own their policy; a fork's enforced checkout must
+  // not silently change what these synthetic upstream API fixtures exercise.
+  cpSync(path.resolve("scripts/github"), path.join(root, "scripts/github"), { recursive: true });
+  symlinkSync(path.resolve("scripts/lib"), path.join(root, "scripts/lib"), "junction");
+  symlinkSync(path.resolve("node_modules"), path.join(root, "node_modules"), "junction");
+  mkdirSync(path.join(root, ".github"));
+  const policy = parse(readFileSync(path.resolve(".github/security-review-policy.yml"), "utf8"));
+  delete policy.rollout;
+  if (configureRollout) {
+    policy.rollout = { "pull-request": rollout.number };
+  }
+  writeFileSync(path.join(root, ".github/security-review-policy.yml"), stringify(policy));
   const logPath = path.join(root, "requests.jsonl");
   const fixturePath = path.join(root, "fixture.json");
   const eventPath = path.join(root, "event.json");
@@ -121,7 +139,7 @@ function evaluate(routes: Record<string, unknown> = {}, mode = "enforce", deadli
     [
       "--import",
       path.resolve("test/fixtures/github-guard-fetch.mjs"),
-      path.resolve("scripts/github/security-review.mjs"),
+      path.join(root, "scripts/github/security-review.mjs"),
     ],
     {
       encoding: "utf8",
@@ -1553,6 +1571,31 @@ describe("combined security review entry point", () => {
       status: "diverged",
     },
   };
+
+  it("enforces both guards without a configured rollout, even for an old branch", () => {
+    const result = evaluate(exemptRoutes, "enforce", undefined, false);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.combined.at(-1)).toBe("success");
+    expect(
+      result.reviews.some((entry) => entry.body?.context === "openclaw/dependency-review"),
+    ).toBe(true);
+    expect(
+      result.reviews.some((entry) => entry.body?.context === "openclaw/security-sensitive-review"),
+    ).toBe(true);
+    expect(result.requests.some((entry) => entry.path.endsWith("/pulls/152415"))).toBe(false);
+  });
+
+  it("still requires real CI without a configured rollout", () => {
+    const result = evaluate(
+      { ...exemptRoutes, [runsPath]: { total_count: 0, workflow_runs: [] } },
+      "enforce",
+      undefined,
+      false,
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.combined.at(-1)).toBe("pending");
+    expect(result.combined).not.toContain("success");
+  });
 
   it("grandfathers an old branch without issuing reusable standalone successes or notices", () => {
     const result = evaluate(exemptRoutes);

@@ -49,6 +49,11 @@ on:
         required: false
         default: false
         type: boolean
+      fork_linux_only:
+        description: leether/openclaw exact-head release gate only; defer two iOS screenshot jobs as unverified.
+        required: false
+        default: false
+        type: boolean
       pull_request_number:
         description: Pull request number required by the exact-SHA release gate.
         required: false
@@ -229,6 +234,10 @@ jobs:
       run_ios_lifecycle_tests: ${{ steps.manifest.outputs.run_ios_lifecycle_tests }}
       ios_simulator_selection: ${{ steps.manifest.outputs.ios_simulator_selection }}
       run_ios_screenshots: ${{ steps.changed_scope.outputs.run_ios_screenshots }}
+      defer_ios_screenshots: ${{ steps.manifest.outputs.defer_ios_screenshots }}
+      ios_screenshot_coverage: ${{ steps.manifest.outputs.ios_screenshot_coverage }}
+      ios_screenshot_reason: ${{ steps.manifest.outputs.ios_screenshot_reason }}
+      ios_screenshot_scope: ${{ steps.manifest.outputs.ios_screenshot_scope }}
       run_android_screenshots: ${{ steps.changed_scope.outputs.run_android_screenshots }}
       run_android_job: ${{ steps.manifest.outputs.run_android_job }}
       run_android_access_native: ${{ steps.manifest.outputs.run_android_access_native }}
@@ -1471,6 +1480,13 @@ jobs:
           OPENCLAW_CI_CORRECTION_BASE_SHA: ${{ steps.release_correction_base.outputs.sha }}
           OPENCLAW_CI_HISTORICAL_TARGET: ${{ steps.historical_target.outputs.eligible || 'false' }}
           OPENCLAW_CI_RELEASE_GATE: ${{ inputs.release_gate && 'true' || 'false' }}
+          OPENCLAW_CI_FORK_LINUX_ONLY: ${{ inputs.fork_linux_only && 'true' || 'false' }}
+          OPENCLAW_CI_SCOPE_TOKEN: ${{ inputs.fork_linux_only && github.token || '' }}
+          OPENCLAW_CI_REQUESTED_RUNNER_BACKEND: ${{ inputs.runner_backend || 'default' }}
+          OPENCLAW_CI_REQUESTED_SHAPE: ${{ inputs.ci_shape || 'default' }}
+          OPENCLAW_CI_RELEASE_CANDIDATE_REF: ${{ inputs.release_candidate_ref }}
+          OPENCLAW_CI_DISPATCH_ID: ${{ inputs.dispatch_id }}
+          OPENCLAW_CI_QUALIFICATION_BASELINES_JSON: ${{ inputs.qualification_baselines_json }}
           OPENCLAW_CI_RELEASE_FAST_LANE_LABEL: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release-fast-lane') && 'true' || 'false' }}
           OPENCLAW_CI_RELEASE_SCOPE: ${{ inputs.release_scope || 'full' }}
           OPENCLAW_CI_VALIDATION_TIER: ${{ github.event_name == 'schedule' && 'main' || inputs.validation_tier || 'full' }}
@@ -5518,7 +5534,7 @@ jobs:
       contents: read
     name: "ios-screenshots-${{ matrix.device_family }}"
     needs: [preflight]
-    if: &ios_screenshot_capture_gate ${{ needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || needs.preflight.outputs.run_ios_screenshots == 'true') }}
+    if: &ios_screenshot_capture_gate ${{ needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || needs.preflight.outputs.run_ios_screenshots == 'true') && needs.preflight.outputs.defer_ios_screenshots != 'true' }}
     runs-on: ${{ (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON('xcode-27-xlarge'))) || ('xcode-27-xlarge') }}
     timeout-minutes: 90
     env:
@@ -6336,6 +6352,14 @@ jobs:
         run: |
           echo '::notice title=Published-driver update skipped::The selected checkout revision differs from github.sha; this cell only runs in the caller revision and cache scope.'
           echo 'Published-driver update skipped: the dispatch-fallback checkout revision differs from `github.sha`. This cell only runs in the caller revision and cache scope; this run has no published-driver cell proof for the selected revision.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Record deferred iOS screenshot coverage
+        if: always() && needs.preflight.outputs.defer_ios_screenshots == 'true'
+        env:
+          COVERAGE: ${{ needs.preflight.outputs.ios_screenshot_coverage }}
+          REASON: ${{ needs.preflight.outputs.ios_screenshot_reason }}
+        run: |
+          printf '::notice title=iOS screenshot coverage::%s: %s\n' "$COVERAGE" "$REASON"
+          printf 'iOS screenshot coverage: **%s**. %s\n' "$COVERAGE" "$REASON" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify selected CI lanes
         if: always()
         shell: bash
@@ -6374,8 +6398,8 @@ jobs:
             macos-swift=${{ needs.macos-swift.result }}|${{ needs.preflight.outputs.run_macos_swift }}
             ios-build=${{ needs.ios-build.result }}|${{ needs.preflight.outputs.run_ios_build }}
             ios-release-e2e=${{ needs.ios-release-e2e.result }}|${{ github.event_name == 'workflow_dispatch' && !inputs.release_gate && needs.preflight.outputs.validation_tier == 'full' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.checkout_revision == github.sha && needs.preflight.outputs.compatibility_target != 'true' && needs.preflight.outputs.run_ios_build == 'true' }}
-            ios-screenshot-shard=${{ needs.ios-screenshot-shard.result }}|${{ needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || needs.preflight.outputs.run_ios_screenshots == 'true') }}
-            ios-screenshot-evidence=${{ needs.ios-screenshot-evidence.result }}|${{ needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || needs.preflight.outputs.run_ios_screenshots == 'true') }}
+            ios-screenshot-shard=${{ needs.ios-screenshot-shard.result }}|${{ needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || needs.preflight.outputs.run_ios_screenshots == 'true') && needs.preflight.outputs.defer_ios_screenshots != 'true' }}
+            ios-screenshot-evidence=${{ needs.ios-screenshot-evidence.result }}|${{ needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || needs.preflight.outputs.run_ios_screenshots == 'true') && needs.preflight.outputs.defer_ios_screenshots != 'true' }}
             android=${{ needs.android.result }}|${{ needs.preflight.outputs.run_android_job }}
             android-screenshots=${{ needs.android-screenshots.result }}|${{ needs.preflight.outputs.validation_tier != 'main' && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || needs.preflight.outputs.run_android_screenshots == 'true') }}
             android-access-native=${{ needs.android-access-native.result }}|${{ needs.preflight.outputs.run_android_access_native }}

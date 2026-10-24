@@ -80,7 +80,7 @@
       "runtimeFormat": "cjs"
     },
     "release": {
-      "bundleRuntimeDependencies": false,
+      "bundleRuntimeDependencies": true,
       "publishToClawHub": true,
       "publishToNpm": true
     }

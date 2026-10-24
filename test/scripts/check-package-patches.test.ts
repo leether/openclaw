@@ -32,8 +32,39 @@ afterEach(() => {
 });
 
 describe("check-package-patches", () => {
+  it("allows only the two approved migration source-diff paths without package registration", () => {
+    const dir = makeRepo();
+    mkdirSync(path.join(dir, "patches"), { recursive: true });
+    for (const name of [
+      "a2ui-0.11.0-zod4.6.6-source.patch",
+      "discord-2.5.0-zod4.6.6-source.patch",
+    ]) {
+      writeFileSync(path.join(dir, "patches", name), "diff\n", "utf8");
+    }
+    git(dir, ["add", "patches"]);
+    expect(collectPackagePatchViolations(dir)).toEqual([]);
+  });
+
+  it.each([
+    "patches/a2ui-0.11.1-zod4.6.6-source.patch",
+    "patches/discord-2.5.1-zod4.6.6-source.patch",
+    "patches/a2ui-0.11.0-zod4.6.6-source-other.patch",
+    "other/discord-2.5.0-zod4.6.6-source.patch",
+  ])("rejects a similar unapproved source patch path %s", (file) => {
+    const dir = makeRepo();
+    mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    writeFileSync(path.join(dir, file), "diff\n", "utf8");
+    git(dir, ["add", file]);
+    expect(collectPackagePatchViolations(dir)).toEqual([
+      { file, kind: "patchFile", detail: "new package patch file" },
+    ]);
+  });
+
   it("allows approved pnpm patches together", () => {
     const approvedPatches = [
+      ["@a2ui/web_core@0.11.0", "patches/@a2ui__web_core@0.11.0.patch"],
+      ["@a2ui/lit@0.11.0", "patches/@a2ui__lit@0.11.0.patch"],
+      ["@discord/embedded-app-sdk@2.5.0", "patches/@discord__embedded-app-sdk@2.5.0.patch"],
       ["@awesome.me/webawesome@3.13.0", "patches/@awesome.me__webawesome@3.13.0.patch"],
       ["baileys@7.0.0-rc12", "patches/baileys@7.0.0-rc12.patch"],
       ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
@@ -72,6 +103,12 @@ ${approvedPatches.map(([specifier]) => `  "${specifier}": a9aea1790d2c65b1ae543c
     ["left-pad@1.3.0", "patches/left-pad@1.3.0.patch"],
     ["matrix-js-sdk@42.4.1", "patches/matrix-js-sdk@42.4.1.patch"],
     ["matrix-js-sdk@42.4.0", "patches/matrix-js-sdk@42.4.0-other.patch"],
+    ["@a2ui/web_core@0.11.1", "patches/@a2ui__web_core@0.11.1.patch"],
+    ["@a2ui/web_core@0.11.0", "patches/@a2ui__web_core@0.11.0-other.patch"],
+    ["@a2ui/lit@0.11.1", "patches/@a2ui__lit@0.11.1.patch"],
+    ["@a2ui/lit@0.11.0", "patches/@a2ui__lit@0.11.0-other.patch"],
+    ["@discord/embedded-app-sdk@2.5.1", "patches/@discord__embedded-app-sdk@2.5.1.patch"],
+    ["@discord/embedded-app-sdk@2.5.0", "patches/@discord__embedded-app-sdk@2.5.0-other.patch"],
   ])("rejects unapproved workspace patch %s -> %s", (specifier, patchPath) => {
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });
