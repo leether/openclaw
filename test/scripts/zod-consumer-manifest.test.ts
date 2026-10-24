@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { readDerivedProbeIdentity } from "../../scripts/fork-linux/discord/contracts.mjs";
 import { collectConsumerQualification } from "../../scripts/fork-linux/zod-consumer-manifest.mjs";
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -56,6 +57,7 @@ function fixture() {
     sdk: { name: sdk.name, version: "2.5.0", zod: "4.6.6", zodPackageSha256: sha("zod-package") },
     sdkTree: { targetTreeSha256: sdk.targetTreeSha256 },
     sourceProvenance: { patchSha256: sdk.patchSha256, sourcePatchSha256: sdk.sourcePatchSha256 },
+    derivedProbes: readDerivedProbeIdentity(),
     assets: [{ installedPath: "dist/assets/embedded-app-sdk.mjs", sha256: sha("asset") }],
   };
   const audit = { metadata: { vulnerabilities: { high: 0, critical: 0 } } };
@@ -121,6 +123,17 @@ function fixture() {
             compatChecks: 86,
             generatedCommands: 13,
             errorCases: 19,
+            nativePlainErrorFallback: {
+              nativeSendCommand: true,
+              plainErrorRejected: true,
+              compatibilityFallback: true,
+              primaryAndFallbackArgsExact: true,
+              distinctNonces: true,
+              commandFrames: 2,
+              nativeRejections: 1,
+              pendingCommandsAfterTerminal: 0,
+              listenersAfterClose: 0,
+            },
             threeElementsMaxOne: { rejected: true, elementVisits: 0 },
             publicSDK: publicSdk(format === "esm" ? "mjs" : format),
             children: { compat: child(), errors: child(), publicSDK: child() },
@@ -146,6 +159,7 @@ function fixture() {
           esmEntryRelative: "output/index.mjs",
         },
         artifactHashes: {
+          derivedProbes: structuredClone(discord.derivedProbes),
           expectedContract: sha(JSON.stringify(discord)),
           sdkCarrierTree: sdk.targetTreeSha256,
           resolvedZodPackage: sha("zod-package"),
@@ -248,13 +262,75 @@ function fixture() {
       { packages },
       sha("contract"),
     );
-  return { records, runtimes, sdkReports, audit, browser, run };
+  return { records, runtimes, sdkReports, discord, audit, browser, run };
 }
 
 describe("installed migration evidence aggregation", () => {
   it("accepts all four separate runtime paths with exact capture and output identity", async () => {
     await expect(fixture().run()).resolves.toMatchObject({ passed: true });
   });
+  it.each(
+    ["24.22.1", "24.22.0"].flatMap((version) =>
+      ["installed", "restored"].flatMap((prefix) =>
+        ["missing", "wrong-provenance", "old-probe"].map((fault) => ({
+          name: `${prefix}-discord-proof-${version}.json`,
+          fault,
+        })),
+      ),
+    ),
+  )("rejects $fault probe identity in $name", async ({ name, fault }) => {
+    const f = fixture();
+    const report = f.sdkReports.find((entry) => f.records.get(name) === entry);
+    assert.ok(report);
+    if (fault === "missing") {
+      Reflect.deleteProperty(report.artifactHashes, "derivedProbes");
+    } else if (fault === "wrong-provenance") {
+      report.artifactHashes.derivedProbes.provenanceSha256 = sha("unreviewed-provenance");
+    } else {
+      report.artifactHashes.derivedProbes.probes["compat.mjs"] =
+        "b63d4c06eb2a12ff7c37c53f3cc87cf5478c7a1dd0ec6240ab36aa7ff902196d";
+    }
+    await expect(f.run()).rejects.toThrow();
+  });
+  it.each(["missing", "wrong-provenance", "old-probe", "extra-probe"])(
+    "rejects self-consistent capture and four reports with %s source proof",
+    async (fault) => {
+      const f = fixture();
+      if (fault === "missing") {
+        Reflect.deleteProperty(f.discord, "derivedProbes");
+      } else if (fault === "wrong-provenance") {
+        f.discord.derivedProbes.provenanceSha256 = sha("unreviewed-provenance");
+      } else if (fault === "old-probe") {
+        f.discord.derivedProbes.probes["compat.mjs"] =
+          "b63d4c06eb2a12ff7c37c53f3cc87cf5478c7a1dd0ec6240ab36aa7ff902196d";
+      } else {
+        f.discord.derivedProbes.probes["unreviewed.mjs"] = sha("extra");
+      }
+      for (const report of f.sdkReports) {
+        report.artifactHashes.derivedProbes = structuredClone(f.discord.derivedProbes);
+        report.artifactHashes.expectedContract = sha(JSON.stringify(f.discord));
+      }
+      await expect(f.run()).rejects.toThrow();
+    },
+  );
+  it.each(["missing", "not-plain", "unsettled", "extra-command"])(
+    "rejects %s native plain-error fallback proof",
+    async (fault) => {
+      const f = fixture();
+      const format = f.sdkReports[3]?.formats.esm;
+      assert.ok(format);
+      if (fault === "missing") {
+        Reflect.deleteProperty(format, "nativePlainErrorFallback");
+      } else if (fault === "not-plain") {
+        format.nativePlainErrorFallback.plainErrorRejected = false;
+      } else if (fault === "unsettled") {
+        format.nativePlainErrorFallback.pendingCommandsAfterTerminal = 1;
+      } else {
+        format.nativePlainErrorFallback.commandFrames = 3;
+      }
+      await expect(f.run()).rejects.toThrow();
+    },
+  );
   it.each([
     "missing",
     "stale-capture",

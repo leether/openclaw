@@ -6,6 +6,7 @@ import {
   parseScopeState,
   verifyKernelReceipts,
 } from "./canvas-managed.mjs";
+import { readDerivedProbeIdentity } from "./discord/contracts.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 const runtimeCases = { registration: 2, jsonlAccepted: 2, jsonlRejected: 9, composition: 2 };
@@ -40,7 +41,9 @@ function childFinished(child) {
 }
 
 function publicSdk(proof) {
-  for (const flag of publicFlags) assert.equal(proof[flag], true, flag);
+  for (const flag of publicFlags) {
+    assert.equal(proof[flag], true, flag);
+  }
   assert.equal(proof.pendingCommandsAfterTerminal, 0);
   assert.equal(proof.listenersAfterClose, 0);
   assert.equal(proof.commands, 3);
@@ -84,6 +87,8 @@ export async function collectConsumerQualification(
   );
   const canvasHash = await hashFile("canvas-capture.json");
   const discord = await read("discord-capture.json");
+  const derivedProbes = readDerivedProbeIdentity();
+  assert.deepEqual(discord.derivedProbes, derivedProbes);
   assert.equal(discord.schema, "discord-installed-contract-v1");
   assert.equal(discord.plugin.name, "@openclaw/discord");
   assert.equal(discord.sdk.name, "@discord/embedded-app-sdk");
@@ -137,18 +142,36 @@ export async function collectConsumerQualification(
       );
       assert.equal(sdk.identity.zodPackageRelative.includes("\\"), false);
       assert.equal(sdk.artifactHashes.resolvedZodPackage, discord.sdk.zodPackageSha256);
-      if (firstZodRelative) assert.equal(sdk.identity.zodPackageRelative, firstZodRelative);
-      else firstZodRelative = sdk.identity.zodPackageRelative;
+      if (firstZodRelative) {
+        assert.equal(sdk.identity.zodPackageRelative, firstZodRelative);
+      } else {
+        firstZodRelative = sdk.identity.zodPackageRelative;
+      }
       assert.equal(sdk.artifactHashes.expectedContract, discordHash);
+      assert.deepEqual(sdk.artifactHashes.derivedProbes, derivedProbes);
       assert.equal(sdk.artifactHashes.sdkCarrierTree, expectedSdk.targetTreeSha256);
       assert.deepEqual(sdk.artifactHashes.staticAssets, discordAssets);
-      if (firstDiscordHashes) assert.deepEqual(sdk.artifactHashes, firstDiscordHashes);
-      else firstDiscordHashes = sdk.artifactHashes;
-      assert.deepEqual(Object.keys(sdk.formats).sort(), ["cjs", "esm"]);
+      if (firstDiscordHashes) {
+        assert.deepEqual(sdk.artifactHashes, firstDiscordHashes);
+      } else {
+        firstDiscordHashes = sdk.artifactHashes;
+      }
+      assert.deepEqual(Object.keys(sdk.formats).toSorted(), ["cjs", "esm"]);
       for (const [format, proof] of Object.entries(sdk.formats)) {
         assert.equal(proof.compatChecks, 86);
         assert.equal(proof.generatedCommands, 13);
         assert.equal(proof.errorCases, 19);
+        assert.deepEqual(proof.nativePlainErrorFallback, {
+          nativeSendCommand: true,
+          plainErrorRejected: true,
+          compatibilityFallback: true,
+          primaryAndFallbackArgsExact: true,
+          distinctNonces: true,
+          commandFrames: 2,
+          nativeRejections: 1,
+          pendingCommandsAfterTerminal: 0,
+          listenersAfterClose: 0,
+        });
         assert.deepEqual(proof.threeElementsMaxOne, { rejected: true, elementVisits: 0 });
         publicSdk(proof.publicSDK);
         assert.equal(proof.publicSDK.entry.format, format === "esm" ? "mjs" : "cjs");
@@ -158,8 +181,10 @@ export async function collectConsumerQualification(
           format === "esm" ? "node-esm-import-conditions" : "node-require",
         );
         assert.equal(proof.publicSDK.entry.relative, sdk.identity[`${format}EntryRelative`]);
-        assert.deepEqual(Object.keys(proof.children).sort(), ["compat", "errors", "publicSDK"]);
-        for (const child of Object.values(proof.children)) childFinished(child);
+        assert.deepEqual(Object.keys(proof.children).toSorted(), ["compat", "errors", "publicSDK"]);
+        for (const child of Object.values(proof.children)) {
+          childFinished(child);
+        }
       }
       childFinished(sdk.assets.generatedSdk);
       publicSdk(sdk.assets.generatedSdk.proof);
@@ -180,10 +205,12 @@ export async function collectConsumerQualification(
   assert.equal(browser.cleanup.serverClosed, true);
   assert.equal(browser.cleanup.processTreeVerifiedEmpty, true);
   assert.equal(browser.cleanup.requiresOuterProcessTreeVerification, false);
-  for (const field of ["closeError", "error", "killError"])
+  for (const field of ["closeError", "error", "killError"]) {
     assert.equal(browser.cleanup[field], undefined);
-  for (const field of ["externalRequestsBlocked", "webSocketsBlocked", "pageErrors"])
+  }
+  for (const field of ["externalRequestsBlocked", "webSocketsBlocked", "pageErrors"]) {
     assert.deepEqual(browser[field], []);
+  }
   assert.equal(browser.requests.length, 12);
   assert.ok(browser.requests.every((request) => request.method === "GET"));
   assert.equal(browser.browserOutput.limitBytes, 32768);
@@ -225,8 +252,9 @@ export async function collectConsumerQualification(
       contained.elapsedMs < 60000,
   );
   assert.equal(contained.peakBytes, browser.workerContainment.after.peak);
-  for (const field of ["maxLimitEvents", "oomEvents", "oomKillEvents"])
+  for (const field of ["maxLimitEvents", "oomEvents", "oomKillEvents"]) {
     assert.equal(contained[field], 0);
+  }
   assert.equal(contained.empty, true);
   const finalUnit = parseScopeState({
     status: contained.systemctlStatus,
@@ -235,8 +263,9 @@ export async function collectConsumerQualification(
       .join("\n"),
   });
   assert.equal(contained.unitRemoved, finalUnit.LoadState === "not-found");
-  if (!contained.unitRemoved)
+  if (!contained.unitRemoved) {
     assert.equal(finalUnit.ControlGroup, browser.workerContainment.before.cgroup);
+  }
   assert.ok(browser.assertions.includes("owned-cgroup-limit-and-extinction-verified"));
   return {
     passed: true,
@@ -247,6 +276,7 @@ export async function collectConsumerQualification(
     installedAndRestoredNodeVersions: ["24.22.1", "24.22.0"],
     canvas: { runtimeCases, browserCases: browser.caseCounts, closureScope: canvas.closureScope },
     discord: {
+      derivedProbes,
       packageFiles: 231,
       runtimeFiles: 227,
       formats: ["cjs", "esm"],

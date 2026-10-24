@@ -6,6 +6,8 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fixtureSourceCallId } from "./installed-model-fixture.mjs";
+import { verifyOwnerTests } from "./npm/owner-test-contract.mjs";
+import { collectNpmQualification } from "./npm/qualification.mjs";
 import {
   collectMsalQualification,
   collectUndiciQualification,
@@ -19,7 +21,9 @@ assert.equal(git("rev-parse", "HEAD"), process.env.QUALIFIED_SHA);
 const read = async (name) => JSON.parse(await fs.readFile(path.join(artifactRoot, name), "utf8"));
 const hashFile = async (name) => {
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path.join(artifactRoot, name))) hash.update(chunk);
+  for await (const chunk of createReadStream(path.join(artifactRoot, name))) {
+    hash.update(chunk);
+  }
   return hash.digest("hex");
 };
 const installedAudit = await read("installed-npm-audit.json");
@@ -138,6 +142,16 @@ for (const version of ["24.22.1", "24.22.0"]) {
 const files = {};
 const undici = await collectUndiciQualification(read);
 const msal = await collectMsalQualification(read, hashFile);
+const npm = await collectNpmQualification(read, hashFile);
+const prepackReport = await read("npm-prepack-tests.json");
+npm.prepackTests = verifyOwnerTests(prepackReport, ["test/openclaw-prepack.test.ts"]);
+for (const mode of ["prepared", "ocm"]) {
+  const matches = prepackReport.testResults[0].assertionResults.filter(
+    (item) => item.title === `rejects ${mode} at the actual prepack entry before mutation`,
+  );
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].status, "passed");
+}
 const sourceContractBytes = await fs.readFile("patches/zod4-consumers.json");
 const consumers = await collectConsumerQualification(
   read,
@@ -146,6 +160,8 @@ const consumers = await collectConsumerQualification(
   createHash("sha256").update(sourceContractBytes).digest("hex"),
 );
 for (const name of [
+  ...npm.artifactNames,
+  "npm-prepack-tests.json",
   "openclaw-candidate.tgz",
   "openclaw-linux-x64-runtime.tar.gz",
   "source-pnpm-lock.yaml",
@@ -208,6 +224,7 @@ const report = {
   migratedConsumers: consumers,
   undici,
   msal,
+  npm,
   offlineRestore:
     "runtime archive includes the complete npm installation and Linux production dependencies; verified Node 24.22.0 and 24.22.1 archives are included separately",
   limitations: [

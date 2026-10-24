@@ -112,15 +112,18 @@ for (const bad of [
   response("GET_CHANNEL", { id: "c1", type: 1 }),
   { ...response("AUTHENTICATE", auth), nonce: null },
   response("AUTHENTICATE", { ...auth, user: { id: "1" } }),
-])
+]) {
   rejects(() => schemas.parseIncomingPayload(bad));
-for (const value of ["known", "new", 9, -1])
+}
+for (const value of ["known", "new", 9, -1]) {
   same(
     zodCoerceUnhandledValue({ UNHANDLED: -1, KNOWN: "known" }).parse(value),
     value === "known" ? "known" : -1,
   );
-for (const value of [null, undefined])
+}
+for (const value of [null, undefined]) {
   rejects(() => zodCoerceUnhandledValue({ UNHANDLED: -1, KNOWN: "known" }).parse(value));
+}
 same(zodCoerceUnhandledValue({ UNHANDLED: -1, KNOWN: "known" }).nullish().parse(null), null);
 same(
   zodCoerceUnhandledValue({ UNHANDLED: -1, KNOWN: "known" }).optional().parse(undefined),
@@ -134,8 +137,9 @@ for (const [value, want] of [
   [null, "fallback"],
   [undefined, "fallback"],
   [42, "fallback"],
-])
+]) {
   same(fallback.parse(value), want);
+}
 rejects(() => fallback.overlayType.parse(null));
 same(fallback.overlayType.parse(undefined), "fallback");
 let generated = 0;
@@ -144,7 +148,7 @@ same(dynamic.parse(null), "v1");
 same(dynamic.parse(undefined), "v2");
 same(dynamic.parse("fixed"), "fixed");
 same(generated, 2);
-let sent = [];
+const sent = [];
 const send = async (payload) => {
   sent.push(payload);
   return response(payload.cmd, channel);
@@ -169,12 +173,14 @@ same(
   }),
   { opened: null },
 );
-let tries = [];
+const tries = [];
 const compatFactory = compat.default;
 const command = compatFactory({
   sendCommand: async (p) => {
     tries.push(p);
-    if (tries.length === 1) throw { code: 4000 };
+    if (tries.length === 1) {
+      throw Object.assign(new Error("synthetic invalid payload"), { code: 4000 });
+    }
     return response(p.cmd, "ok");
   },
   cmd: "AUTHORIZE",
@@ -200,26 +206,150 @@ await assert.rejects(
 );
 checks++;
 same(errors, 1);
+// Keep the original parser cases above and separately exercise the real SDK's
+// plain-object ERROR rejection through its native compatibility command.
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+const nativeFrames = [];
+const nativeListeners = new Set();
+const nativeRejections = [];
+let nativeSdk;
+try {
+  globalThis.window = {
+    location: {
+      origin: "https://fixture.invalid",
+      search: "?frame_id=f&instance_id=i&platform=desktop&channel_id=c",
+    },
+    parent: {
+      postMessage: ([opcode, payload]) => {
+        if (opcode !== 1) {
+          return;
+        }
+        nativeFrames.push(payload);
+        const incoming =
+          nativeFrames.length === 1
+            ? {
+                cmd: payload.cmd,
+                evt: "ERROR",
+                nonce: payload.nonce,
+                data: { code: 4000, message: "synthetic invalid payload" },
+              }
+            : { cmd: payload.cmd, evt: null, nonce: payload.nonce, data: {} };
+        // sendCommand registers its Promise after postMessage returns.
+        queueMicrotask(() => {
+          for (const listener of nativeListeners) {
+            listener({ data: [1, incoming], origin: "https://discord.com" });
+          }
+        });
+      },
+    },
+    addEventListener: (kind, listener) => {
+      assert.equal(kind, "message");
+      nativeListeners.add(listener);
+    },
+    removeEventListener: (kind, listener) => {
+      assert.equal(kind, "message");
+      nativeListeners.delete(listener);
+    },
+  };
+  globalThis.document = { referrer: "https://discord.com" };
+  const { DiscordSDK } = await load("index");
+  const { setOrientationLockState } = await load("commands/setOrientationLockState");
+  nativeSdk = new DiscordSDK("synthetic", { disableConsoleLogOverride: true });
+  const nativeCommand = setOrientationLockState((payload) => {
+    const pending = nativeSdk.sendCommand(payload);
+    // Observe the exact native rejection without replacing the Promise or value
+    // that the installed compatibility factory receives.
+    void pending.catch((error) => {
+      nativeRejections.push(error);
+    });
+    return pending;
+  });
+  const primaryArgs = {
+    lock_state: 1,
+    picture_in_picture_lock_state: 2,
+    grid_lock_state: 3,
+  };
+  assert.deepEqual(await nativeCommand(primaryArgs), {});
+  assert.equal(nativeRejections.length, 1);
+  assert.equal(nativeRejections[0] instanceof Error, false);
+  assert.equal(Object.getPrototypeOf(nativeRejections[0]), Object.prototype);
+  assert.deepEqual(nativeRejections[0], { code: 4000, message: "synthetic invalid payload" });
+  assert.deepEqual(
+    nativeFrames.map((frame) => ({ cmd: frame.cmd, args: frame.args })),
+    [
+      { cmd: "SET_ORIENTATION_LOCK_STATE", args: primaryArgs },
+      {
+        cmd: "SET_ORIENTATION_LOCK_STATE",
+        args: { lock_state: 1, picture_in_picture_lock_state: 2 },
+      },
+    ],
+  );
+  assert.equal(typeof nativeFrames[0].nonce, "string");
+  assert.equal(typeof nativeFrames[1].nonce, "string");
+  assert.notEqual(nativeFrames[0].nonce, nativeFrames[1].nonce);
+  assert.equal(nativeSdk.pendingCommands.size, 0);
+} finally {
+  nativeSdk?.close(1000, "synthetic-finished");
+  if (originalWindow) {
+    Object.defineProperty(globalThis, "window", originalWindow);
+  } else {
+    delete globalThis.window;
+  }
+  if (originalDocument) {
+    Object.defineProperty(globalThis, "document", originalDocument);
+  } else {
+    delete globalThis.document;
+  }
+}
+assert.equal(nativeListeners.size, 0);
+const nativePlainErrorFallback = {
+  nativeSendCommand: true,
+  plainErrorRejected: true,
+  compatibilityFallback: true,
+  primaryAndFallbackArgsExact: true,
+  distinctNonces: true,
+  commandFrames: nativeFrames.length,
+  nativeRejections: nativeRejections.length,
+  pendingCommandsAfterTerminal: nativeSdk.pendingCommands.size,
+  listenersAfterClose: nativeListeners.size,
+};
 // Exercise all 13 generated command parsers using the official frozen JSON schemas.
 const spec = JSON.parse(
   readFileSync(new URL("./discord-official-command-schema.json", import.meta.url), "utf8"),
 );
 const { schemaCommandFactory } = await load("utils/commandFactory");
 function sample(schema) {
-  if (schema == null) return undefined;
-  if ("const" in schema) return schema.const;
-  if (schema.enum) return schema.enum[0];
+  if (schema == null) {
+    return undefined;
+  }
+  if ("const" in schema) {
+    return schema.const;
+  }
+  if (schema.enum) {
+    return schema.enum[0];
+  }
   const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
-  if (type === "object")
+  if (type === "object") {
     return Object.fromEntries(
       (schema.required ?? []).map((k) => [k, sample(schema.properties[k])]),
     );
-  if (type === "array")
+  }
+  if (type === "array") {
     return Array.from({ length: schema.minItems ?? 0 }, () => sample(schema.items));
-  if (type === "string") return "x".repeat(Math.max(1, schema.minLength ?? 1));
-  if (type === "number" || type === "integer") return schema.minimum ?? 0;
-  if (type === "boolean") return false;
-  if (type === "null") return null;
+  }
+  if (type === "string") {
+    return "x".repeat(Math.max(1, schema.minLength ?? 1));
+  }
+  if (type === "number" || type === "integer") {
+    return schema.minimum ?? 0;
+  }
+  if (type === "boolean") {
+    return false;
+  }
+  if (type === "null") {
+    return null;
+  }
   throw new Error(`Unsupported synthetic schema type ${type}`);
 }
 const generatedCommands = [];
@@ -252,6 +382,7 @@ console.log(
     format,
     checks,
     generatedCommands,
+    nativePlainErrorFallback,
     threeElementsMaxOne: { rejected: true, elementVisits: visits },
     noExternalIO: true,
   }),

@@ -21,7 +21,7 @@ function packageFor(require, name, packageName = name) {
     if (fs.existsSync(file)) {
       const bytes = fs.readFileSync(file);
       const pkg = JSON.parse(bytes);
-      if (pkg.name === packageName)
+      if (pkg.name === packageName) {
         return {
           dir,
           entry,
@@ -29,12 +29,13 @@ function packageFor(require, name, packageName = name) {
           packageSha256: sha(bytes),
           entrySha256: sha(fs.readFileSync(entry)),
         };
+      }
     }
     const next = path.dirname(dir);
     assert.notEqual(next, dir);
     dir = next;
   }
-  throw Error("package owner missing");
+  throw new Error("package owner missing");
 }
 function inside(root, file) {
   const rel = path.relative(root, file);
@@ -51,7 +52,9 @@ export function inspect(packageRoot, boundaryRoot = packageRoot) {
   const plugin = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   assert.equal(plugin.name, "@openclaw/msteams");
   assert.equal(plugin.version, "2026.10.4");
-  if (root !== boundary) inside(boundary, root);
+  if (root !== boundary) {
+    inside(boundary, root);
+  }
   return parents.map(([name, version]) => {
     const parent = packageFor(req, name);
     assert.equal(parent.pkg.version, version);
@@ -91,11 +94,11 @@ export function inspect(packageRoot, boundaryRoot = packageRoot) {
   });
 }
 export function identityOnly(rows) {
-  return rows.map(({ parentRoot, ...row }) => row);
+  return rows.map(({ parentRoot: _parentRoot, ...row }) => row);
 }
 export function hashesOnly(rows) {
-  return rows.map(({ parentRoot, parentRelative, msal, ...row }) => {
-    const { relative, ...msalHashes } = msal;
+  return rows.map(({ parentRoot: _parentRoot, parentRelative: _parentRelative, msal, ...row }) => {
+    const { relative: _relative, ...msalHashes } = msal;
     return { ...row, msal: msalHashes };
   });
 }

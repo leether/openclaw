@@ -59,7 +59,7 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
       "synthetic actual installed/restored Canvas bundle consumers; platform stated explicitly; no general custom-schema or LIVE claim",
   };
   const assets = new Map();
-  for (const lane of ["installed", "restored"])
+  for (const lane of ["installed", "restored"]) {
     for (const version of ["v08", "v09"]) {
       const file = bundles[lane][version];
       const bytes = await readFile(file);
@@ -72,8 +72,9 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
         status: "pending",
       });
     }
+  }
   const fixture =
-    "globalThis.__proofActions=[];globalThis.openclaw={state:{emit:async x=>{globalThis.__proofActions.push(x)}}};globalThis.openclawA2UIBoot={actionTier:'state',messages:[]};";
+    "globalThis.canvasProofActions=[];globalThis.openclaw={state:{emit:async x=>{globalThis.canvasProofActions.push(x)}}};globalThis.openclawA2UIBoot={actionTier:'state',messages:[]};";
   result.networkBoundary = {
     chromiumNativeSandboxRetained: true,
     outerSeatbelt: false,
@@ -84,7 +85,6 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
     externalNetworkKernelEnforcement: false,
   };
   result.webSocketsBlocked = [];
-  let origin;
   const server = createServer((req, res) => {
     result.requests.push({ path: req.url, method: req.method });
     assert.ok(result.requests.length < 50);
@@ -115,7 +115,7 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
-  origin = `http://127.0.0.1:${server.address().port}`;
+  const origin = `http://127.0.0.1:${server.address().port}`;
   let child, browser, closed;
   let stderr = "";
   const outputBudget = createBrowserOutputBudget();
@@ -158,13 +158,15 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
     closed = once(child, "close");
     closed.catch(() => {});
     child.stdout.on("data", (b) => {
-      if (!outputBudget.observe(b)) child.kill("SIGTERM");
+      if (!outputBudget.observe(b)) {
+        child.kill("SIGTERM");
+      }
     });
     const ws = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("browser admission timeout")), 8000);
       child.on("error", (e) => {
         clearTimeout(timer);
-        reject(e);
+        reject(e instanceof Error ? e : new Error("browser spawn failed", { cause: e }));
       });
       child.on("exit", (code, signal) => {
         clearTimeout(timer);
@@ -195,7 +197,9 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
         serviceWorkers: "block",
       });
       await context.route("**/*", (route) => {
-        if (new URL(route.request().url()).origin === origin) return route.continue();
+        if (new URL(route.request().url()).origin === origin) {
+          return route.continue();
+        }
         result.externalRequestsBlocked.push({
           lane: row.lane,
           version: row.version,
@@ -204,9 +208,9 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
         return route.abort("blockedbyclient");
       });
       assert.equal(typeof context.routeWebSocket, "function");
-      await context.routeWebSocket("**/*", (ws) => {
-        result.webSocketsBlocked.push(ws.url());
-        ws.close({ code: 1008, reason: "synthetic proof does not use WebSockets" });
+      await context.routeWebSocket("**/*", (socketRoute) => {
+        result.webSocketsBlocked.push(socketRoute.url());
+        return socketRoute.close({ code: 1008, reason: "synthetic proof does not use WebSockets" });
       });
       const page = await context.newPage();
       page.setDefaultTimeout(4000);
@@ -218,13 +222,14 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
         }),
       );
       page.on("console", (m) => {
-        if (["error", "warning"].includes(m.type()) && result.console.length < 40)
+        if (["error", "warning"].includes(m.type()) && result.console.length < 40) {
           result.console.push({
             lane: row.lane,
             version: row.version,
             type: m.type(),
             text: m.text().slice(0, 500),
           });
+        }
       });
       try {
         await page.goto(`${origin}/${row.lane}/${row.version}`, {
@@ -236,7 +241,7 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
         );
         row.tests.push("exact-host-bundle-loaded");
         const apply = (messages) =>
-          page.evaluate((messages) => globalThis.openclawA2UI.applyMessages(messages), messages);
+          page.evaluate((payload) => globalThis.openclawA2UI.applyMessages(payload), messages);
         if (row.version === "v09") {
           const version = "v0.9";
           const surfaceId = "synthetic-surface";
@@ -285,8 +290,8 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
           row.tests.push("model-path-update-rendered");
           await page.getByRole("textbox").fill("Grace");
           await page.getByRole("button", { name: "Synthetic submit" }).click();
-          await page.waitForFunction(() => globalThis.__proofActions.length === 1);
-          const event = await page.evaluate(() => globalThis.__proofActions[0]);
+          await page.waitForFunction(() => globalThis.canvasProofActions.length === 1);
+          const event = await page.evaluate(() => globalThis.canvasProofActions[0]);
           assert.equal(event.eventType, "a2ui.action");
           assert.equal(event.action.name, "synthetic-submit");
           assert.equal(event.action.context.name, "Grace");
@@ -380,9 +385,9 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
       try {
         result.cleanup.childClose = await Promise.race([
           closed,
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("child pipes close timeout")), 2000),
-          ),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error("child pipes close timeout")), 2000);
+          }),
         ]);
       } catch (error) {
         result.cleanup.error = error.message;
@@ -391,9 +396,9 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
         try {
           result.cleanup.childCloseAfterKill = await Promise.race([
             closed,
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("post-KILL pipes close timeout")), 2000),
-            ),
+            new Promise((_, reject) => {
+              setTimeout(() => reject(new Error("post-KILL pipes close timeout")), 2000);
+            }),
           ]);
         } catch (killError) {
           result.cleanup.killError = killError.message;
@@ -401,14 +406,18 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
       }
     }
     server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => {
+      server.close(resolve);
+    });
     result.cleanup.serverClosed = true;
     finalizeBrowserOutput(result, outputBudget);
     result.browserStderr = stderr;
     result.cleanup.browserLeaderExited = Boolean(
       child && (child.exitCode !== null || child.signalCode !== null),
     );
-    if (!result.cleanup.browserLeaderExited) result.passed = false;
+    if (!result.cleanup.browserLeaderExited) {
+      result.passed = false;
+    }
     result.cleanup.requiresOuterProcessTreeVerification = true;
     result.caseCounts = {
       combinations: result.results.length,

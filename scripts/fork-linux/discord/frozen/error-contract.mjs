@@ -42,7 +42,7 @@ const cases = [
   { name: "invalid-default", reply: { ...envelope, data: 5 }, default: true, paths: [["data"]] },
 ];
 const observations = [];
-for (const factory of ["command", "compat"])
+for (const factory of ["command", "compat"]) {
   for (const spec of cases) {
     const schema = spec.object
       ? Message.pick({ content: true })
@@ -76,10 +76,14 @@ for (const factory of ["command", "compat"])
     }
     assert.equal(calls, 1);
     assert.equal(outcome.accepted, !spec.paths, spec.name);
-    if (spec.paths) assert.deepEqual(outcome.paths, spec.paths, spec.name);
-    else assert.deepEqual(outcome.value, spec.value, spec.name);
+    if (spec.paths) {
+      assert.deepEqual(outcome.paths, spec.paths, spec.name);
+    } else {
+      assert.deepEqual(outcome.value, spec.value, spec.name);
+    }
     observations.push({ factory, case: spec.name, calls, ...outcome });
   }
+}
 for (const data of [undefined, {}, { image_url: 5 }]) {
   let outcome;
   try {

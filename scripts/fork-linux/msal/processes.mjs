@@ -30,12 +30,16 @@ export async function runBounded(args, cwd, { timeoutMs = 30000, maxBytes = 2621
     const timer = setTimeout(() => fail("wall-limit"), Math.max(0, remainingMs));
     function collect(data, output) {
       count += data.length;
-      if (!output) stderrHash.update(data);
+      if (!output) {
+        stderrHash.update(data);
+      }
       if (count > maxBytes) {
         fail("output-limit");
         return;
       }
-      if (output && !failure) stdout.push(data);
+      if (output && !failure) {
+        stdout.push(data);
+      }
     }
     child.stdout.on("data", (data) => collect(data, true));
     child.stderr.on("data", (data) => collect(data, false));

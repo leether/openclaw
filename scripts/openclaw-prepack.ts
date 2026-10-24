@@ -39,6 +39,7 @@ type PreparedFileReader = {
 type PackageManifest = {
   dependencies?: Record<string, unknown>;
   name?: unknown;
+  openclawBundledNpmDerivation?: unknown;
 };
 
 function ocmExternalizesWorkspacePackage(packageName: string, env: NodeJS.ProcessEnv): boolean {
@@ -91,9 +92,22 @@ export function collectSourcePackWorkspaceDependencyErrors(
   ];
 }
 
+export function collectSourcePackDerivationErrors(packageJson: PackageManifest): string[] {
+  if (packageJson.openclawBundledNpmDerivation === undefined) {
+    return [];
+  }
+  return [
+    "direct prepack cannot materialize and restore the exact bundled npm derivative",
+    `use \`${SELF_CONTAINED_SOURCE_PACK_COMMAND}\`; prepared release and OCM flags do not bypass the npm derivation lifecycle`,
+  ];
+}
+
 function ensureSupportedSourcePack(env: NodeJS.ProcessEnv = process.env): void {
   const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageManifest;
-  const errors = collectSourcePackWorkspaceDependencyErrors(packageJson, env);
+  const errors = [
+    ...collectSourcePackDerivationErrors(packageJson),
+    ...collectSourcePackWorkspaceDependencyErrors(packageJson, env),
+  ];
   if (errors.length === 0) {
     return;
   }

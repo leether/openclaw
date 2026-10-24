@@ -17,6 +17,30 @@ sha256sum pnpm-lock.yaml package.json > "$FORK_ARTIFACT_DIR/source-inputs.sha256
   --config.supportedArchitectures.libc=glibc
 "${guard[@]}" 120 node scripts/fork-linux/patched-consumer-contract.mjs \
   "$source_root" "$FORK_ARTIFACT_DIR/patched-source-inputs-before.json"
+# Prepare the two fixed official inputs through the managed subprocess owner.
+# The synchronous lock/materialization owners only consume this verified cache.
+"${guard[@]}" 180 node --input-type=module -e \
+  'const { ensureNpmRuntimeArtifact } = await import("./scripts/lib/package-npm-runtime.mts"); await ensureNpmRuntimeArtifact(process.cwd());'
+npm_derivation="$source_root/.artifacts/npm-runtime-derivation/npm-12.2.1-undici-6.29.1-v1"
+export OPENCLAW_NPM_BUNDLE_OFFICIAL_FIXTURE_DIR="$npm_derivation"
+"${guard[@]}" 600 node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.tooling.config.ts --maxWorkers=1 \
+  test/scripts/package-bundled-npm.test.ts test/scripts/package-npm-runtime.test.ts \
+  test/scripts/generate-npm-package-lock.test.ts test/scripts/installed-npm-proof.test.ts \
+  test/scripts/check-openclaw-package-tarball.test.ts \
+  --reporter=json --outputFile="$FORK_ARTIFACT_DIR/npm-owner-tests.json"
+"${guard[@]}" 600 node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.tooling.config.ts --maxWorkers=1 \
+  test/openclaw-prepack.test.ts \
+  --reporter=json --outputFile="$FORK_ARTIFACT_DIR/npm-prepack-tests.json"
+"${guard[@]}" 900 node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.package-contract.config.ts --maxWorkers=1 \
+  test/e2e/qa-lab/runtime/package-openclaw-for-docker.e2e.test.ts \
+  --reporter=json --outputFile="$FORK_ARTIFACT_DIR/npm-pack-lifecycle-tests.json"
+cp "$npm_derivation/npm-12.2.1.tgz" "$FORK_ARTIFACT_DIR/npm-original-12.2.1.tgz"
+cp "$npm_derivation/undici-6.29.1.tgz" "$FORK_ARTIFACT_DIR/npm-undici-6.29.1.tgz"
+cp "$npm_derivation/npm-derived.tgz" "$FORK_ARTIFACT_DIR/npm-derived.tgz"
+cp "$npm_derivation/provenance.json" "$FORK_ARTIFACT_DIR/npm-derivation-provenance.json"
 # The existing browser owner selects the UI package's managed Chromium. A
 # preparation failure is a failed prerequisite, not an installed-browser pass.
 "${guard[@]}" 900 node --import ./scripts/tsx.mjs \
@@ -144,6 +168,8 @@ for version in 24.22.1 24.22.0; do
   offline 240 env QUALIFICATION_NETWORK_ISOLATED=1 "$runtime" \
     "$source_root/scripts/fork-linux/installed-npm-proof.mjs" \
     "$FORK_RUNTIME_DIR/node_modules/openclaw" "$runtime" "$RUNNER_TEMP/fork-npm-synthetic-$version" \
+    --carrier-roundtrip "$npm_derivation/npm-12.2.1.tgz" \
+    "$npm_derivation/undici-6.29.1.tgz" "$npm_derivation/npm-derived.tgz" \
     > "$FORK_ARTIFACT_DIR/installed-npm-proof-$version.json"
   offline 600 env QUALIFICATION_NETWORK_ISOLATED=1 "$runtime" \
     "$source_root/scripts/fork-linux/installed-http-proof.mjs" \
@@ -194,6 +220,8 @@ for version in 24.22.1 24.22.0; do
   offline 240 env QUALIFICATION_NETWORK_ISOLATED=1 "$runtime" \
     "$source_root/scripts/fork-linux/installed-npm-proof.mjs" \
     "$restore/node_modules/openclaw" "$runtime" "$RUNNER_TEMP/fork-restored-npm-synthetic-$version" \
+    --carrier-roundtrip "$npm_derivation/npm-12.2.1.tgz" \
+    "$npm_derivation/undici-6.29.1.tgz" "$npm_derivation/npm-derived.tgz" \
     > "$FORK_ARTIFACT_DIR/restored-npm-proof-$version.json"
   offline 600 env QUALIFICATION_NETWORK_ISOLATED=1 "$runtime" \
     "$source_root/scripts/fork-linux/installed-http-proof.mjs" \

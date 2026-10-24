@@ -61,7 +61,9 @@ export function createAuthContract(scenario) {
         ...(mode === "user-assigned" ? ["client_id"] : []),
       ]);
       assert.ok([...url.searchParams.keys()].every((key) => allowed.has(key)));
-      for (const key of allowed) assert.equal(url.searchParams.getAll(key).length, 1);
+      for (const key of allowed) {
+        assert.equal(url.searchParams.getAll(key).length, 1);
+      }
       assert.equal(url.searchParams.get("api-version"), "2019-08-01");
       const resource =
         mode === "system-federated"
@@ -79,9 +81,13 @@ export function createAuthContract(scenario) {
     issueManaged(accessToken, resource) {
       assert.ok(mode === "system-federated" || mode === "user-assigned");
       assert.ok(issued.size < 32 && typeof accessToken === "string" && accessToken.length > 0);
-      if (mode === "system-federated") assert.equal(resource, exchangeResource);
+      if (mode === "system-federated") {
+        assert.equal(resource, exchangeResource);
+      }
       issued.set(accessToken, { resource, scenario });
-      if (mode === "system-federated") proof.exchangeTokenHashes.push(digest(accessToken));
+      if (mode === "system-federated") {
+        proof.exchangeTokenHashes.push(digest(accessToken));
+      }
     },
     oauth(url, method, form) {
       assert.ok(expectedScope, "caller scope required");
@@ -91,8 +97,9 @@ export function createAuthContract(scenario) {
       assert.equal(url.pathname, `/${tenant}/oauth2/v2.0/token`);
       assert.equal(url.search, "");
       assert.equal(url.hash, "");
-      for (const key of ["grant_type", "client_id", "scope"])
+      for (const key of ["grant_type", "client_id", "scope"]) {
         assert.equal(form.getAll(key).length, 1);
+      }
       assert.equal(form.get("grant_type"), "client_credentials");
       assert.equal(form.get("client_id"), client);
       assert.equal(form.get("scope"), expectedScope);

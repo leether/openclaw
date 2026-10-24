@@ -11,7 +11,7 @@ const assert = new Proxy(nativeAssert, {
       : value;
   },
 });
-const [root, format = "mjs"] = process.argv.slice(2);
+const [, format = "mjs"] = process.argv.slice(2);
 const outbox = [];
 const listeners = new Set();
 globalThis.window = {
@@ -27,7 +27,7 @@ globalThis.window = {
   removeEventListener: (kind, fn) => listeners.delete(fn),
 };
 globalThis.document = { referrer: "https://discord.com" };
-const load = await globalThis.__discordLoadQualifiedNamespace();
+const load = await globalThis.discordLoadQualifiedNamespace();
 assert.ok(
   load && typeof load.DiscordSDK === "function",
   "qualified native entry namespace required",
@@ -35,7 +35,9 @@ assert.ok(
 const { DiscordSDK } = load;
 const sdk = new DiscordSDK("synthetic", { disableConsoleLogOverride: true });
 const frame = (payload, origin = "https://discord.com") => {
-  for (const fn of listeners) fn({ data: [1, payload], origin });
+  for (const fn of listeners) {
+    fn({ data: [1, payload], origin });
+  }
 };
 const bounded = async (promise) => {
   let timer;
@@ -130,7 +132,7 @@ console.log(
     format,
     checks,
     commands: 3,
-    entry: globalThis.__discordQualifiedEntry,
+    entry: globalThis.discordQualifiedEntry,
     handshake: true,
     ready: true,
     exactNonceSettlement: true,

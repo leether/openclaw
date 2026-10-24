@@ -24,14 +24,16 @@ try {
   const deadline = process.env.OPENCLAW_MSAL_SCENARIO_DEADLINE_NS;
   assert.match(deadline ?? "", /^[1-9][0-9]{1,30}$/);
   const deadlineNs = BigInt(deadline);
-  for (const key of Object.keys(process.env))
+  for (const key of Object.keys(process.env)) {
     if (
       /^(AZURE_|MSI_|IDENTITY_|IMDS_|CLIENT_|TENANT_|CLOUD$|MANAGED_IDENTITY|SERVICE_URL)/.test(key)
-    )
+    ) {
       delete process.env[key];
+    }
+  }
   const deny = () => {
     report.socketAttempts++;
-    throw Error("real network operation prohibited");
+    throw new Error("real network operation prohibited");
   };
   net.Socket.prototype.connect = deny;
   tls.connect = deny;
@@ -40,7 +42,7 @@ try {
   https.request = deny;
   net.Server.prototype.listen = function () {
     report.serverListenCalls++;
-    throw Error("server start prohibited");
+    throw new Error("server start prohibited");
   };
   syncBuiltinESMExports();
   process.env.IDENTITY_ENDPOINT = "http://169.254.0.2/msi/token";
@@ -126,8 +128,9 @@ try {
     invoke = (scope, signal) => cred.getToken(scope, { abortSignal: signal });
   } else {
     const options = { clientId: client, tenantId: tenant, clientSecret: "", logger };
-    if (scenario === "teams-secret") options.clientSecret = "synthetic-not-a-credential";
-    else if (scenario === "teams-certificate-provider") {
+    if (scenario === "teams-secret") {
+      options.clientSecret = "synthetic-not-a-credential";
+    } else if (scenario === "teams-certificate-provider") {
       const cred = new azure.ClientCertificateCredential(
         tenant,
         client,
@@ -135,9 +138,13 @@ try {
         opts,
       );
       options.token = async (scope) => (await cred.getToken(scope)).token;
-    } else if (scenario === "teams-managed-user") options.managedIdentityClientId = client;
-    else if (scenario === "teams-managed-system") options.managedIdentityClientId = "system";
-    else throw Error("unknown scenario");
+    } else if (scenario === "teams-managed-user") {
+      options.managedIdentityClientId = client;
+    } else if (scenario === "teams-managed-system") {
+      options.managedIdentityClientId = "system";
+    } else {
+      throw new Error("unknown scenario");
+    }
     const app = new App(options);
     invoke = (scope) => app.tokenProvider.getAppToken(scope, tenant);
   }
@@ -182,7 +189,7 @@ try {
   const pending = invoke(scope("caller-abort"), controller.signal).then(
     (value) => {
       settled = true;
-      outcome = { kind: "fulfilled", hasToken: !!tokenText(value) };
+      outcome = { kind: "fulfilled", hasToken: Boolean(tokenText(value)) };
     },
     (error) => {
       settled = true;
@@ -191,7 +198,9 @@ try {
   );
   await endpoint.entered;
   controller.abort();
-  await new Promise((resolve) => queueMicrotask(resolve));
+  await new Promise((resolve) => {
+    queueMicrotask(resolve);
+  });
   const beforeRelease = {
     requestPromiseSettled: settled,
     actualEndpointStillOpen: endpoint.outstanding,
@@ -210,8 +219,9 @@ try {
       ? "option-present-propagation-not-guaranteed"
       : "public-API-has-no-AbortSignal-parameter",
   };
-  if (scenario.includes("certificate"))
+  if (scenario.includes("certificate")) {
     assert.ok(endpoint.signatureChecks > 0, "real MSAL signing must execute");
+  }
   assert.equal(report.socketAttempts, 0);
   assert.equal(report.serverListenCalls, 0);
   report.events = endpoint.events;

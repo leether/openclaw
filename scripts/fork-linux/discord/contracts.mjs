@@ -60,6 +60,28 @@ export function readOwnFile(root, name, maxBytes = 16 * 1024 * 1024) {
   return fs.readFileSync(current);
 }
 
+const PROBE_PROVENANCE_SHA = "c13e125b8ea2f9c4fd41a00fe13c57a42c3d4d962242440f9957c27e7cbd8ddd";
+
+export function readDerivedProbeIdentity() {
+  const root = path.join(import.meta.dirname, "frozen");
+  const bytes = readOwnFile(root, "probe-provenance.json", 16384);
+  assert.equal(sha(bytes), PROBE_PROVENANCE_SHA, "reviewed derived probe provenance identity");
+  const provenance = JSON.parse(bytes);
+  assert.equal(provenance.schema, "discord-derived-probes-v1");
+  assert.deepEqual(
+    provenance.files.map((file) => file.path),
+    ["compat.mjs", "error-contract.mjs"],
+  );
+  const probes = {};
+  for (const file of provenance.files) {
+    const actual = readOwnFile(root, file.path, 65536);
+    assert.equal(actual.length, file.bytes, "derived probe bytes");
+    assert.equal(sha(actual), file.sha256, "derived probe identity");
+    probes[file.path] = file.sha256;
+  }
+  return { provenanceSha256: sha(bytes), probes };
+}
+
 export function captureContract(sourceRoot) {
   const source = fs.realpathSync(sourceRoot);
   const dir = path.join(source, "extensions/discord");
@@ -67,7 +89,9 @@ export function captureContract(sourceRoot) {
   assert.equal(sourceContract.schemaVersion, 1);
   const expectedSdk = sourceContract.packages.find((item) => item.name === SDK_TREE.name);
   assert.ok(expectedSdk);
-  for (const key of Object.keys(SDK_TREE)) assert.deepEqual(expectedSdk[key], SDK_TREE[key]);
+  for (const key of Object.keys(SDK_TREE)) {
+    assert.deepEqual(expectedSdk[key], SDK_TREE[key]);
+  }
   assert.equal(sha(readOwnFile(source, expectedSdk.patch)), expectedSdk.patchSha256);
   assert.equal(sha(readOwnFile(source, expectedSdk.sourcePatch)), expectedSdk.sourcePatchSha256);
   const pkg = JSON.parse(readOwnFile(dir, "package.json"));
@@ -75,9 +99,7 @@ export function captureContract(sourceRoot) {
   assert.equal(pkg.name, "@openclaw/discord");
   assert.equal(pkg.dependencies["@discord/embedded-app-sdk"], "2.5.0");
   const sourceRequire = createRequire(path.join(dir, "package.json"));
-  const sourceSdk = fs.realpathSync(
-    sourceRequire.resolve("@discord/embedded-app-sdk/package.json"),
-  );
+  const sourceSdk = fs.realpathSync(sourceRequire.resolve(`${expectedSdk.name}/package.json`));
   within(source, sourceSdk);
   const sourceZod = fs.realpathSync(createRequire(sourceSdk).resolve("zod/package.json"));
   within(source, sourceZod);
@@ -88,15 +110,21 @@ export function captureContract(sourceRoot) {
   assert.equal(manifest.id, "discord");
   const assets = [];
   for (const item of pkg.openclaw.build.staticAssets) {
-    const source = relativeFile(item.source);
+    const assetSource = relativeFile(item.source);
     const installedPath = `dist/${relativeFile(item.output)}`;
-    const bytes = readOwnFile(dir, source);
-    assets.push({ kind: "static", source, installedPath, bytes: bytes.length, sha256: sha(bytes) });
+    const bytes = readOwnFile(dir, assetSource);
+    assets.push({
+      kind: "static",
+      source: assetSource,
+      installedPath,
+      bytes: bytes.length,
+      sha256: sha(bytes),
+    });
   }
   const ui = manifest.controlUi;
   assert.ok(ui && typeof ui.entry === "string");
-  for (const source of [ui.entry, ...(ui.styles ?? [])]) {
-    const installedPath = relativeFile(source);
+  for (const uiSource of [ui.entry, ...(ui.styles ?? [])]) {
+    const installedPath = relativeFile(uiSource);
     assert.match(installedPath, /^dist\/control-ui\/[a-f0-9]{64}\/index\.(?:js|css)$/);
     const bytes = readOwnFile(dir, installedPath);
     assets.push({
@@ -124,6 +152,7 @@ export function captureContract(sourceRoot) {
       patchSha256: expectedSdk.patchSha256,
       sourcePatchSha256: expectedSdk.sourcePatchSha256,
     },
+    derivedProbes: readDerivedProbeIdentity(),
     controlUi: ui,
     assets,
   };
@@ -146,8 +175,10 @@ export function validateContract(contract) {
     runtimeFiles: 227,
   });
   assert.deepEqual(contract.sdkTree, SDK_TREE);
-  for (const value of Object.values(contract.sourceProvenance))
+  assert.deepEqual(contract.derivedProbes, readDerivedProbeIdentity());
+  for (const value of Object.values(contract.sourceProvenance)) {
     assert.match(value, /^[a-f0-9]{64}$/);
+  }
   assert.ok(
     Array.isArray(contract.assets) && contract.assets.length >= 2 && contract.assets.length <= 32,
   );
@@ -187,7 +218,7 @@ export function inspectInstallation(pluginRoot, contract) {
   assert.equal(plugin.version, contract.plugin.version);
   const require = createRequire(path.join(root, "package.json"));
   const sdkRoot = path.dirname(
-    fs.realpathSync(require.resolve("@discord/embedded-app-sdk/package.json")),
+    fs.realpathSync(require.resolve(`${contract.sdk.name}/package.json`)),
   );
   const sdkRelative = within(root, sdkRoot);
   const pkg = JSON.parse(readOwnFile(sdkRoot, "package.json"));
@@ -203,7 +234,7 @@ export function inspectInstallation(pluginRoot, contract) {
   assert.equal(zod.name, "zod");
   assert.equal(zod.version, "4.6.6");
   assert.equal(sha(zodBytes), contract.sdk.zodPackageSha256);
-  const cjs = fs.realpathSync(require.resolve("@discord/embedded-app-sdk"));
+  const cjs = fs.realpathSync(require.resolve(contract.sdk.name));
   assert.equal(cjs, path.join(sdkRoot, "output/index.cjs"));
   const metadata = JSON.parse(readOwnFile(root, "openclaw.plugin.json"));
   assert.equal(metadata.id, "discord");
@@ -237,6 +268,7 @@ export function inspectInstallation(pluginRoot, contract) {
       cjsEntryRelative: within(root, cjs),
     },
     artifactHashes: {
+      derivedProbes: readDerivedProbeIdentity(),
       manifest: MANIFEST_SHA,
       sdkCarrierTree: tree.rawTreeSha256,
       sdkPackage: sdkManifest["package.json"].sha256,

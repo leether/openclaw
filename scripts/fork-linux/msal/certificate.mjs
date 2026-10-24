@@ -77,7 +77,7 @@ export function createRuntimeCertificate(deadlineNs) {
   assert.ok(finished < deadlineNs, "parent certificate deadline");
   return {
     certificate,
-    privateKey: pem.toString(),
+    privateKey: pem,
     proof: {
       generatedAtRuntime: true,
       keyBits: 2048,

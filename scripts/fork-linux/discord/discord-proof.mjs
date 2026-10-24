@@ -78,8 +78,8 @@ if (argv[0] === "capture") {
       const resolved=kind==='asset'?pathToFileURL(path.join(root,'dist/assets/embedded-app-sdk.mjs')).href:format==='cjs'?pathToFileURL(req.resolve('@discord/embedded-app-sdk')).href:import.meta.resolve('@discord/embedded-app-sdk');
       assert.ok(resolved.startsWith('file:'));const file=fs.realpathSync(fileURLToPath(resolved));const rel=path.relative(root,file);assert.ok(rel&&!rel.startsWith('..')&&!path.isAbsolute(rel));
       if(kind!=='asset')assert.equal(file,path.join(sdkRoot,'output',format==='cjs'?'index.cjs':'index.mjs'));
-      globalThis.__discordLoadQualifiedNamespace=async()=>kind==='asset'?await import(resolved):format==='cjs'?req('@discord/embedded-app-sdk'):await import('@discord/embedded-app-sdk');
-      globalThis.__discordQualifiedEntry={kind,format,resolver:format==='cjs'?'node-require':'node-esm-import-conditions',relative:rel.split(path.sep).join('/')};
+      globalThis.discordLoadQualifiedNamespace=async()=>kind==='asset'?await import(resolved):format==='cjs'?req('@discord/embedded-app-sdk'):await import('@discord/embedded-app-sdk');
+      globalThis.discordQualifiedEntry={kind,format,resolver:format==='cjs'?'node-require':'node-esm-import-conditions',relative:rel.split(path.sep).join('/')};
       process.argv=['node',helper,sdkRoot,format];await import(pathToFileURL(helper));`;
     for (const format of ["cjs", "mjs"]) {
       const name = format === "mjs" ? "esm" : "cjs";
@@ -120,12 +120,15 @@ if (argv[0] === "capture") {
       report.formats[name] = {
         compatChecks: compat.proof.checks,
         generatedCommands: compat.proof.generatedCommands.length,
+        nativePlainErrorFallback: compat.proof.nativePlainErrorFallback,
         errorCases: errors.proof.cases,
         publicSDK: publicSDK.proof,
         threeElementsMaxOne: compat.proof.threeElementsMaxOne,
         children: { publicSDK, compat, errors },
       };
-      if (name === "esm") report.identity.esmEntryRelative = publicSDK.proof.entry.relative;
+      if (name === "esm") {
+        report.identity.esmEntryRelative = publicSDK.proof.entry.relative;
+      }
     }
     report.stage = "generated-sdk-asset";
     const asset = await runBounded(

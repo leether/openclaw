@@ -52,14 +52,19 @@ export function kernelSnapshot() {
 }
 export function verifyKernelReceipts(before, after, unit) {
   assert.ok(unit && before.cgroup.endsWith(`/${unit}`));
-  for (const key of ["cgroup", "device", "inode"]) assert.equal(after[key], before[key], key);
+  for (const key of ["cgroup", "device", "inode"]) {
+    assert.equal(after[key], before[key], key);
+  }
   for (const sample of [before, after]) {
     assert.equal(sample.max, String(LIMIT));
     assert.equal(sample.swapMax, "0");
     assert.ok(Number.isSafeInteger(sample.peak) && sample.peak >= 0 && sample.peak <= LIMIT);
-    for (const key of ["max", "oom", "oom_kill"]) assert.equal(sample.events[key], 0, key);
-    if ("oom_group_kill" in sample.events)
+    for (const key of ["max", "oom", "oom_kill"]) {
+      assert.equal(sample.events[key], 0, key);
+    }
+    if ("oom_group_kill" in sample.events) {
       assert.equal(sample.events.oom_group_kill, 0, "oom_group_kill");
+    }
   }
   assert.equal("oom_group_kill" in after.events, "oom_group_kill" in before.events);
 }
@@ -73,7 +78,7 @@ export function parseScopeState(result) {
     assert.ok(match && !(match[1] in fields), "Unexpected or duplicate systemctl property");
     fields[match[1]] = match[2];
   }
-  assert.deepEqual(Object.keys(fields).sort(), ["ActiveState", "ControlGroup", "LoadState"]);
+  assert.deepEqual(Object.keys(fields).toSorted(), ["ActiveState", "ControlGroup", "LoadState"]);
   assert.equal(fields.ActiveState, "inactive");
   if (fields.LoadState === "not-found") {
     assert.equal(fields.ControlGroup, "");
@@ -153,7 +158,8 @@ export async function runBrowserWorker(values, nonce, callback) {
 }
 export async function runManagedBrowser(values, script) {
   const begin = performance.now();
-  const [, , sourceArg, , proofDir] = values;
+  const sourceArg = values[2];
+  const proofDir = values[4];
   assert.ok(path.isAbsolute(sourceArg) && path.isAbsolute(proofDir));
   const source = fs.realpathSync(sourceArg);
   assert.equal(

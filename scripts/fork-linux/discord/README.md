@@ -1,6 +1,6 @@
 # Discord independent installed-package qualification
 
-The helper consumes the actual separately packaged `@openclaw/discord` tree. It does not load the SDK from the source checkout or core package. Its implementation and cases use only public synthetic data. The copied original probes and official Discord command schema retain the adjacent MIT license.
+The helper consumes the actual separately packaged `@openclaw/discord` tree. It does not load the SDK from the source checkout or core package. Its implementation and cases use only public synthetic data. The reviewed derived probes and official Discord command schema retain the adjacent MIT license. `frozen/probe-provenance.json` records the original delivery, the product baseline and current probe hashes; historical results do not qualify these new bytes.
 
 ## Capture and execution
 
@@ -32,16 +32,24 @@ Run all four combinations separately: installed/restored × Node 24.22.1/24.22.0
 - `assets/embedded-app-sdk.mjs` from the source maps to installed `dist/assets/embedded-app-sdk.mjs`. All declared static assets plus `controlUi.entry`/styles are hash-bound. The installed SDK asset also executes the same public communication probe; this is not a browser rendering proof.
 - Rechecks the carrier, Zod identity, generated assets and manifest after every child has settled. This assumes the CI-owned tree is not concurrently modified; two snapshots are not a general filesystem immutability primitive.
 
+## Probe provenance
+
+The lint repair preserves all compatibility and error/default/path assertions. Alongside the synthetic `Error` case, the compatibility probe instantiates the installed SDK and passes a synthetic `ERROR` frame through its real `sendCommand` owner. It observes the unchanged plain-object rejection and exercises the installed `setOrientationLockState` compatibility factory. Exact primary/fallback arguments, two distinct nonces, one rejection, two command frames, no pending commands and listener cleanup are required. This uses no manual plain-object throw and no replacement SDK implementation. Both formats must run again against the installed and restored packages; prior 86/13/19 results remain historical. The official SDK carrier manifest, patches and package integrity values are unchanged.
+
+`contracts.mjs` pins the reviewed provenance file SHA and verifies each current probe's bytes against it. Capture and every installed/restored report carry this exact identity. The four-path aggregate independently obtains the identity from that same source owner and rejects absent, altered or historical probe hashes, including four mutually consistent reports with the wrong source provenance.
+
+The SDK resolver consumes the validated source or installation contract name, whose exact value is fixed by `SDK_TREE` and `validateContract`. Its dependency owner is the supplied Discord plugin package, not the root proof-tool package. No dependency-ignore rule or outer-hoist fallback is used.
+
 ## Reports
 
-Capture schema: `discord-installed-contract-v1`. It contains `plugin`, fixed `sdk`, exact `sdkTree`, `sourceProvenance`, `controlUi` and `assets[]` with relative `source`/`installedPath`, bytes and SHA256.
+Capture schema: `discord-installed-contract-v1`. It contains `plugin`, fixed `sdk`, exact `sdkTree`, `sourceProvenance`, `derivedProbes`, `controlUi` and `assets[]` with relative `source`/`installedPath`, bytes and SHA256.
 
 Result schema: `discord-installed-proof-v1`:
 
 - `passed`, `node`, `platform`, `arch`, `stage`, `identityReverifiedAfterExecution`.
 - `identity`: plugin/SDK name and version, package/runtime counts, CJS/ESM relative entry paths, `resolvedZodVersion`, `zodPackageRelative`, excluded dependency-space description.
-- `artifactHashes`: frozen manifest, SDK carrier tree, SDK/Zod package hashes, CJS/ESM entry hashes, canonical JSON contract hash and installed asset hashes.
-- `formats.cjs` / `formats.esm`: `compatChecks:86`, `generatedCommands:13`, `errorCases:19`, public SDK result with actual assertion count and `commands:3`, and detailed child receipts.
+- `artifactHashes`: frozen manifest, SDK carrier tree, SDK/Zod package hashes, CJS/ESM entry hashes, canonical JSON contract hash, installed asset hashes and the verified derived-probe provenance/hashes.
+- `formats.cjs` / `formats.esm`: `compatChecks:86`, `generatedCommands:13`, `errorCases:19`, the separate `nativePlainErrorFallback` result, public SDK result with actual assertion count and `commands:3`, and detailed child receipts.
 - `assets.generatedSdk`: public communication result for the installed static asset. `attempts[]` retains each completed child even if later qualification fails.
 
 No local absolute paths, command lines, environment secrets or raw child stderr are put in result JSON. Failure messages and child stderr are hashed. Invalid/missing fields and mismatches fail closed; a failed child never becomes a successful report.

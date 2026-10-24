@@ -9,7 +9,7 @@ function token(aud) {
   return `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ aud, iss: `https://login.microsoftonline.com/${tenant}/v2.0`, tid: tenant, appid: client, jti: `synthetic-${++tokenSequence}`, iat: now, nbf: now, exp: now + 3600 })}.synthetic-signature`;
 }
 /** @param {{ certificate?: string, scenario: string }} options */
-export function createFakeEndpoint({ certificate = undefined, scenario }) {
+export function createFakeEndpoint({ certificate, scenario }) {
   const contract = createAuthContract(scenario);
   const events = [];
   let action = "success";
@@ -18,7 +18,9 @@ export function createFakeEndpoint({ certificate = undefined, scenario }) {
   let holdRelease = null;
   let entered = null;
   let heldSignal;
-  const enteredPromise = new Promise((resolve) => (entered = resolve));
+  const enteredPromise = new Promise((resolve) => {
+    entered = resolve;
+  });
   async function request(url, method, body, signal, headers) {
     assert.ok(events.length < 32, "request bound");
     const u = new URL(url);
@@ -38,7 +40,7 @@ export function createFakeEndpoint({ certificate = undefined, scenario }) {
               : "authority-metadata",
       method,
     });
-    if (u.pathname.includes("/discovery/instance"))
+    if (u.pathname.includes("/discovery/instance")) {
       return {
         status: 200,
         body: {
@@ -57,7 +59,8 @@ export function createFakeEndpoint({ certificate = undefined, scenario }) {
           ],
         },
       };
-    if (u.pathname.includes(".well-known"))
+    }
+    if (u.pathname.includes(".well-known")) {
       return {
         status: 200,
         body: {
@@ -68,6 +71,7 @@ export function createFakeEndpoint({ certificate = undefined, scenario }) {
           end_session_endpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/logout`,
         },
       };
+    }
     assert.ok(
       u.pathname.endsWith("/token") || u.hostname === "169.254.0.2",
       "unknown auth operation",
@@ -86,9 +90,10 @@ export function createFakeEndpoint({ certificate = undefined, scenario }) {
         entered();
       });
     }
-    if (action === "cancel")
+    if (action === "cancel") {
       throw new DOMException("Synthetic transport cancellation", "AbortError");
-    if (action === "reject")
+    }
+    if (action === "reject") {
       return {
         status: 400,
         body: {
@@ -100,6 +105,7 @@ export function createFakeEndpoint({ certificate = undefined, scenario }) {
           correlation_id: client,
         },
       };
+    }
     if (managed) {
       const accessToken = token(resource);
       contract.issueManaged(accessToken, resource);
@@ -153,8 +159,8 @@ export function createFakeEndpoint({ certificate = undefined, scenario }) {
   return {
     events,
     request,
-    expectScope: contract.expectScope,
-    authProof: contract.proof,
+    expectScope: (scope) => contract.expectScope(scope),
+    authProof: () => contract.proof(),
     setAction: (v) => {
       assert.ok(["success", "reject", "cancel", "hold"].includes(v));
       action = v;

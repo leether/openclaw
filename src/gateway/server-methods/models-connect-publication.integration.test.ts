@@ -1,10 +1,11 @@
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { beforeAll, expect, it, onTestFailed, vi } from "vitest";
 import {
   GATEWAY_CLIENT_IDS,
   GATEWAY_CLIENT_MODES,
 } from "../../../packages/gateway-protocol/src/client-info.js";
 import type { ModelsSnapshotEvent } from "../../../packages/gateway-protocol/src/index.js";
-import { createDeferred, withTestTimeout } from "../../../test/helpers/promise.js";
+import { createDeferred, withinTest, withTestTimeout } from "../../../test/helpers/promise.js";
 import {
   loadSessionEntry,
   upsertSessionEntryCore,
@@ -45,7 +46,9 @@ beforeAll(async () => {
   await import("../server-start.js");
 });
 
-it("connect negotiates snapshots and preserves draft and saved-session catalog scopes", async () => {
+it("connect negotiates snapshots and preserves draft and saved-session catalog scopes", async ({
+  signal,
+}) => {
   const startedAt = performance.now();
   const phases: { phase: string; elapsedMs: number }[] = [];
   const publications: ModelsSnapshotEvent[] = [];
@@ -284,6 +287,7 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
         });
       const racingPublications: ModelsSnapshotEvent[] = [];
       const sessionChanges: unknown[] = [];
+      const patchedSession = createDeferred();
       let racingClient: Awaited<ReturnType<typeof connectGatewayClient>> | undefined;
       try {
         racingClient = await connectGatewayClient({
@@ -300,6 +304,13 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
               racingPublications.push(event.payload as ModelsSnapshotEvent);
             } else if (event.event === "sessions.changed") {
               sessionChanges.push(event.payload);
+              if (
+                isRecord(event.payload) &&
+                event.payload.sessionKey === sessionKey &&
+                event.payload.reason === "patch"
+              ) {
+                patchedSession.resolve();
+              }
             }
           },
         });
@@ -314,9 +325,12 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
           agentId: "alpha",
           model: "fixture/first@fixture:replacement-account",
         });
-        await expect
-          .poll(() => sessionChanges)
-          .toContainEqual(expect.objectContaining({ sessionKey, reason: "patch" }));
+        // The patch RPC can finish before its prepared session-row event is delivered.
+        // Join that exact event within the existing test lifetime so cancellation still cleans up.
+        await withinTest(patchedSession.promise, signal);
+        expect(sessionChanges).toContainEqual(
+          expect.objectContaining({ sessionKey, reason: "patch" }),
+        );
         await expect(
           racingClient.request("models.list", { agentId: "alpha", sessionKey }),
         ).resolves.toMatchObject({

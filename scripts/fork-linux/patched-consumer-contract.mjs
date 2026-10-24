@@ -32,7 +32,9 @@ export function verifyPackageTree(packageRoot, expected) {
       // Package-manager dependency links and .bin shims are installation
       // metadata. This inventory binds published package files only; each
       // installed dependency graph is separately captured and audited.
-      if (relative === "" && entry.name === "node_modules") continue;
+      if (relative === "" && entry.name === "node_modules") {
+        continue;
+      }
       const name = path.posix.join(relative, entry.name);
       const file = path.join(packageRoot, name);
       assert.ok(!entry.isSymbolicLink(), `Unexpected package symlink: ${name}`);
@@ -77,8 +79,9 @@ export function verifyPackageTree(packageRoot, expected) {
   assert.equal(pkg.name, expected.name);
   assert.equal(pkg.version, expected.version);
   assert.equal(pkg.dependencies.zod, "4.6.6");
-  if (pkg.name === "@a2ui/web_core")
+  if (pkg.name === "@a2ui/web_core") {
     assert.equal(pkg.dependencies["zod-to-json-schema"], undefined);
+  }
   return {
     name: pkg.name,
     version: pkg.version,
@@ -98,7 +101,9 @@ export function verifySourceInputs(root) {
   assert.equal(contract.treeSchema, "sorted-path-sha256-bytes-mode-array-v1");
   assert.equal(contract.packages.length, 3);
   const locks = YAML.parseAllDocuments(fs.readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8"));
-  for (const document of locks) assert.equal(document.errors.length, 0);
+  for (const document of locks) {
+    assert.equal(document.errors.length, 0);
+  }
   const lock = locks.at(-1).toJSON();
   assert.equal(
     Object.keys(lock.packages).some((name) => name.startsWith("zod@3.")),
@@ -123,11 +128,9 @@ export function verifySourceInputs(root) {
     const zod = JSON.parse(zodBytes.toString("utf8"));
     assert.equal(zod.name, "zod");
     assert.equal(zod.version, "4.6.6");
-    return {
-      ...report,
-      resolvedZodVersion: zod.version,
-      resolvedZodPackageSha256: sha(zodBytes),
-    };
+    report.resolvedZodVersion = zod.version;
+    report.resolvedZodPackageSha256 = sha(zodBytes);
+    return report;
   });
   return {
     passed: true,

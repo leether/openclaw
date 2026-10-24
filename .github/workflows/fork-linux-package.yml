@@ -89,6 +89,7 @@ jobs:
             ${{ env.FORK_ARTIFACT_DIR }}/source-inputs.sha256
             ${{ runner.temp }}/fork-linux-resource-scope.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-npm-audit.json
+            ${{ env.FORK_ARTIFACT_DIR }}/npm-*.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-npm-proof-*.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-package-lock.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-dependencies.json

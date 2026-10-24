@@ -76,9 +76,11 @@ export function exerciseRegisteredPlugin(plugin) {
     return registered;
   }
   const enabled = register(true);
-  for (const name of names) assert.equal(enabled[name].length, 1, name);
+  for (const name of names) {
+    assert.equal(enabled[name].length, 1, name);
+  }
   const disabled = register(false);
-  for (const name of names)
+  for (const name of names) {
     assert.equal(
       disabled[name].length,
       ["registerBoardWidgetContentKind", "registerHttpRoute", "registerWidgetPresenter"].includes(
@@ -88,6 +90,7 @@ export function exerciseRegisteredPlugin(plugin) {
         : 1,
       name,
     );
+  }
   const widget = enabled.registerBoardWidgetContentKind[0][0];
   assert.equal(widget.kind, "a2ui");
   assert.deepEqual(widget.resources.paths, [
@@ -199,7 +202,9 @@ export async function exerciseCanvas(root) {
   const coreFiles = new Set();
   const externalModules = new Set();
   const note = (url) => {
-    if (!url.startsWith("file:")) return;
+    if (!url.startsWith("file:")) {
+      return;
+    }
     const file = fs.realpathSync(fileURLToPath(url));
     const relative = path.relative(root, file).split(path.sep).join("/");
     if (relative.startsWith("dist/")) {
@@ -230,12 +235,14 @@ export async function exerciseCanvas(root) {
   assert.ok(coreFiles.has(ENTRY));
   let total = 0;
   const runtimeClosure = Object.fromEntries(
-    [...coreFiles].sort().map((relative) => {
-      const value = fileHash(ownedFile(root, relative));
-      total += value.bytes;
-      assert.ok(total <= 128 * 1024 ** 2, "Runtime closure byte limit");
-      return [relative, value];
-    }),
+    [...coreFiles]
+      .toSorted((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+      .map((relative) => {
+        const value = fileHash(ownedFile(root, relative));
+        total += value.bytes;
+        assert.ok(total <= 128 * 1024 ** 2, "Runtime closure byte limit");
+        return [relative, value];
+      }),
   );
   return {
     ...tested,

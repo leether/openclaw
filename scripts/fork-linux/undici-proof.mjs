@@ -59,7 +59,8 @@ export async function qualifyUndici(packageRoot) {
     socket.once("close", () => sockets.delete(socket));
     return socket;
   };
-  const target = http.createServer(async (req, res) => {
+  const serverErrors = [];
+  const handleTarget = async (req, res) => {
     received.push(req.url);
     const hold = admissions.get(req.url);
     if (hold) {
@@ -73,12 +74,20 @@ export async function qualifyUndici(packageRoot) {
       return;
     }
     const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
     res.setHeader("Content-Type", "application/json");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.end(
       JSON.stringify({ path: req.url, method: req.method, body: Buffer.concat(chunks).toString() }),
     );
+  };
+  const target = http.createServer((req, res) => {
+    observe(handleTarget(req, res)).catch((error) => {
+      serverErrors.push(error);
+      res.destroy(error);
+    });
   });
   target.on("connection", tracked);
   let targetAuthority;
@@ -117,7 +126,9 @@ export async function qualifyUndici(packageRoot) {
     const upstream = tracked(net.connect({ host: "127.0.0.1", port: target.address().port }));
     upstream.once("connect", () => {
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      if (head.length) upstream.write(head);
+      if (head.length) {
+        upstream.write(head);
+      }
       socket.pipe(upstream);
       upstream.pipe(socket);
     });
@@ -182,14 +193,14 @@ export async function qualifyUndici(packageRoot) {
 
     async function cancelRequest(name, dispatcher, body) {
       phase = name;
-      const admitted = deferred();
-      admissions.set(name, admitted);
+      const admission = deferred();
+      admissions.set(name, admission);
       const signal = new AbortController();
       const pending = observe(request(`${origin}${name}`, { dispatcher, signal: signal.signal }));
       const rejected = body
         ? null
         : observe(assert.rejects(pending, (error) => error.name === "AbortError"));
-      const peer = await bounded(admitted.promise);
+      const peer = await bounded(admission.promise);
       const response = body ? await bounded(pending) : null;
       const bodyRejected = body
         ? observe(assert.rejects(response.body.text(), (error) => error.name === "AbortError"))
@@ -289,6 +300,11 @@ export async function qualifyUndici(packageRoot) {
       await bounded(Promise.allSettled(pendingWork), 3000);
     }
   }
+  assert.equal(
+    serverErrors.length,
+    0,
+    "synthetic HTTP request handler must complete without errors",
+  );
   assert.equal(sockets.size, 0);
   assert.equal(target.listening, false);
   assert.equal(proxy.listening, false);
@@ -328,5 +344,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   fs.writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
   console.log(JSON.stringify({ passed: report.passed, cases: report.caseCounts }));
-  if (!report.passed) process.exitCode = 1;
+  if (!report.passed) {
+    process.exitCode = 1;
+  }
 }

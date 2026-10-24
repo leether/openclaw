@@ -58,14 +58,14 @@ function captureFile(file) {
   assert.ok(report.artifactHashes.runtimeClosure[ENTRY]);
   return { report, captureSha256: sha(bytes) };
 }
-function verifyCore(root, capture) {
+function verifyCore(root, captured) {
   const bundles = bundleHashes(root);
   assert.deepEqual(
     bundles,
-    capture.artifactHashes.bundles,
+    captured.artifactHashes.bundles,
     "Installed browser bytes differ from captured build",
   );
-  verifyFiles(root, capture.artifactHashes.runtimeClosure);
+  verifyFiles(root, captured.artifactHashes.runtimeClosure);
   return bundles;
 }
 async function capture(sourceRoot) {
@@ -107,7 +107,7 @@ async function capture(sourceRoot) {
   const tracked = bundler.listTrackedInputFiles(spawnSync, root);
   assert.ok(tracked?.length, "Canonical bundle input discovery must succeed");
   const buildHash = createHash("sha256");
-  for (const file of [...new Set(tracked)].sort(bundler.compareNormalizedPaths)) {
+  for (const file of [...new Set(tracked)].toSorted(bundler.compareNormalizedPaths)) {
     const relative = path.relative(root, file).split(path.sep).join("/");
     const bytes = fs.readFileSync(ownedFile(root, relative));
     assert.ok(bytes.length < 32 * 1024 ** 2);
@@ -217,8 +217,9 @@ async function browser(installedRoot, restoredRoot, playwrightRoot, capturePath,
     assert.equal(result.cleanup.cdpClosed, true);
     assert.equal(result.cleanup.serverClosed, true);
     assert.equal(result.cleanup.browserLeaderExited, true);
-    for (const key of ["closeError", "error", "killError"])
+    for (const key of ["closeError", "error", "killError"]) {
       assert.equal(result.cleanup[key], undefined);
+    }
     result.assertions = [
       "installed-v08-passed",
       "installed-v09-passed",
@@ -244,9 +245,12 @@ export async function main(args) {
     /^v24\.22\.[01]$/u,
     "Linux qualifier must use an exact approved Node 24 runtime",
   );
-  if (phase === "browser") return await runManagedBrowser(values, fileURLToPath(import.meta.url));
-  if (phase === "__browser_worker")
+  if (phase === "browser") {
+    return await runManagedBrowser(values, fileURLToPath(import.meta.url));
+  }
+  if (phase === "__browser_worker") {
     return await runBrowserWorker(values.slice(0, 5), values[5], browser);
+  }
   const output = values.at(-1);
   assert.ok(path.isAbsolute(output) && !fs.existsSync(output), "New absolute output path required");
   let report;
@@ -271,7 +275,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         error: result.error,
       }),
     );
-    if (!result.passed) process.exitCode = 1;
+    if (!result.passed) {
+      process.exitCode = 1;
+    }
   } catch (error) {
     console.error(String(error.message).slice(0, 2000));
     process.exitCode = 1;

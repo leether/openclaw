@@ -29,10 +29,13 @@ export async function collectMsalQualification(read, hashFile) {
     const parent = capture.parents[index];
     assert.equal(parent.name, name);
     assert.equal(parent.version, version);
-    for (const key of ["packageSha256", "entrySha256"]) assert.match(parent[key], /^[a-f0-9]{64}$/);
+    for (const key of ["packageSha256", "entrySha256"]) {
+      assert.match(parent[key], /^[a-f0-9]{64}$/);
+    }
     assert.equal(parent.msal.name, "@azure/msal-node");
-    for (const [key, expected] of Object.entries(officialMsal))
+    for (const [key, expected] of Object.entries(officialMsal)) {
       assert.equal(parent.msal[key], expected);
+    }
     assert.equal(parent.msal.commonVersion, "16.14.2");
     assert.match(parent.msal.commonPackageSha256, /^[a-f0-9]{64}$/);
   }
@@ -55,14 +58,18 @@ export async function collectMsalQualification(read, hashFile) {
       assert.equal(proof.identityReverifiedAfterExecution, true);
       assert.equal(proof.noLiveAzureAuthorizationClaim, true);
       assert.deepEqual(hashesOnly(proof.identity), capture.parents);
-      for (const parent of proof.identity)
+      for (const parent of proof.identity) {
         for (const relative of [parent.parentRelative, parent.msal.relative]) {
           assert.equal(typeof relative, "string");
           assert.ok(relative.split("/").every((part) => part && part !== "." && part !== ".."));
           assert.equal(relative.includes("\\"), false);
         }
-      if (firstIdentity) assert.deepEqual(proof.identity, firstIdentity);
-      else firstIdentity = proof.identity;
+      }
+      if (firstIdentity) {
+        assert.deepEqual(proof.identity, firstIdentity);
+      } else {
+        firstIdentity = proof.identity;
+      }
       assert.deepEqual(
         proof.cells.map((cell) => cell.scenario),
         msalScenarios,
@@ -110,8 +117,9 @@ export async function collectMsalQualification(read, hashFile) {
           auth.managedRequests,
           auth.oauthRequests,
           auth.federationAssertionMatches,
-        ])
+        ]) {
           assert.ok(Number.isSafeInteger(count) && count >= 0 && count <= 32);
+        }
         assert.equal(auth.headerChecks, auth.managedRequests);
         assert.equal(auth.resourceChecks, auth.managedRequests);
         assert.equal(auth.selectorChecks, auth.managedRequests);
@@ -162,7 +170,9 @@ export async function collectMsalQualification(read, hashFile) {
               generated.openssl.outputBytes > 0 &&
               generated.openssl.outputBytes <= 16384,
           );
-        } else assert.equal(outcome.certificateGeneration, null);
+        } else {
+          assert.equal(outcome.certificateGeneration, null);
+        }
         assert.equal(outcome.callerCancellation.sourceReleasedAndJoined, true);
         assert.equal(outcome.callerCancellation.beforeRelease.actualEndpointStillOpen, true);
         assert.equal(
@@ -179,8 +189,9 @@ export async function collectMsalQualification(read, hashFile) {
         );
         assert.equal(outcome.callerCancellation.optionAccepted, scenario.startsWith("azure-"));
         assert.ok(["fulfilled", "rejected"].includes(outcome.callerCancellation.outcome.kind));
-        if (outcome.callerCancellation.outcome.kind === "fulfilled")
+        if (outcome.callerCancellation.outcome.kind === "fulfilled") {
           assert.equal(outcome.callerCancellation.outcome.hasToken, true);
+        }
         cancellationObservations.push({
           prefix,
           node: version,
@@ -235,8 +246,11 @@ export async function collectUndiciQualification(read) {
           .every((part) => part && part !== ".." && part !== "."),
       );
       assert.equal(proof.identity.packageRelative.includes("\\"), false);
-      if (identity) assert.deepEqual(proof.identity, identity);
-      else identity = proof.identity;
+      if (identity) {
+        assert.deepEqual(proof.identity, identity);
+      } else {
+        identity = proof.identity;
+      }
       assert.deepEqual(proof.cases, undiciCases);
       assert.deepEqual(proof.caseCounts, { passed: 9, receivedRequests: 9, queuedAdmitted: 0 });
       assert.deepEqual(proof.cleanup, {
