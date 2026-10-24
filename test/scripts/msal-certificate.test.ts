@@ -110,8 +110,16 @@ describe("ephemeral certificate test material", () => {
       });
       endpoint.expectScope(scope);
       const url = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`;
+      const requestId = "10203040-5060-4070-8090-a0b0c0d0e0f0";
+      const requestUrl = `${url}?client-request-id=${requestId}`;
       const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-      const input = `${encode({ alg: algorithm })}.${encode({ iss: client, sub: client, aud: url, exp: Math.floor(Date.now() / 1000) + 60 })}`;
+      const claims = {
+        iss: client,
+        sub: client,
+        aud: url,
+        exp: Math.floor(Date.now() / 1000) + 60,
+      };
+      const input = `${encode({ alg: algorithm })}.${encode(claims)}`;
       const key =
         algorithm === "PS256"
           ? { key: generated.privateKey, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 }
@@ -120,14 +128,32 @@ describe("ephemeral certificate test material", () => {
       const form = new URLSearchParams({
         grant_type: "client_credentials",
         client_id: client,
+        "client-request-id": requestId,
         scope,
         client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
         client_assertion: assertion,
       });
-      expect((await endpoint.request(url, "POST", form.toString())).status).toBe(200);
+      expect((await endpoint.request(requestUrl, "POST", form.toString())).status).toBe(200);
       expect(endpoint.signatureChecks).toBe(1);
       form.set("client_assertion", `${input}.invalid-signature`);
-      await expect(endpoint.request(url, "POST", form.toString())).rejects.toThrow();
+      await expect(endpoint.request(requestUrl, "POST", form.toString())).rejects.toThrow();
+      for (const invalidClaims of [
+        { ...claims, aud: requestUrl },
+        { ...claims, aud: `https://login.microsoftonline.com/${client}/oauth2/v2.0/token` },
+        { ...claims, aud: `https://qualification.invalid/${tenant}/oauth2/v2.0/token` },
+        { ...claims, aud: `https://login.microsoftonline.com/${tenant}/other/token` },
+        { ...claims, iss: tenant },
+        { ...claims, sub: tenant },
+        { ...claims, exp: Math.floor(Date.now() / 1000) - 1 },
+      ]) {
+        const invalidInput = `${encode({ alg: algorithm })}.${encode(invalidClaims)}`;
+        form.set(
+          "client_assertion",
+          `${invalidInput}.${sign("RSA-SHA256", Buffer.from(invalidInput), key).toString("base64url")}`,
+        );
+        await expect(endpoint.request(requestUrl, "POST", form.toString())).rejects.toThrow();
+        expect(endpoint.signatureChecks).toBe(1);
+      }
     },
   );
   it.each([

@@ -127,7 +127,8 @@ export function createFakeEndpoint({ certificate, scenario }) {
       const claims = JSON.parse(Buffer.from(parts[1], "base64url"));
       assert.equal(claims.iss, client);
       assert.equal(claims.sub, client);
-      assert.equal(claims.aud, u.href);
+      // MSAL signs the authority token endpoint before adding request query parameters.
+      assert.equal(claims.aud, `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`);
       assert.ok(claims.exp > Math.floor(Date.now() / 1000));
       const publicKey = createPublicKey(certificate);
       const verificationKey =

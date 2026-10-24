@@ -95,11 +95,20 @@ export function createAuthContract(scenario) {
       assert.equal(method, "POST");
       assert.equal(url.origin, "https://login.microsoftonline.com");
       assert.equal(url.pathname, `/${tenant}/oauth2/v2.0/token`);
-      assert.equal(url.search, "");
+      assert.deepEqual([...url.searchParams.keys()], ["client-request-id"]);
+      const requestId = url.searchParams.get("client-request-id");
+      assert.ok(
+        typeof requestId === "string" &&
+          requestId.length === 36 &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId),
+        "invalid synthetic OAuth request ID",
+      );
       assert.equal(url.hash, "");
-      for (const key of ["grant_type", "client_id", "scope"]) {
+      for (const key of ["grant_type", "client_id", "scope", "client-request-id"]) {
         assert.equal(form.getAll(key).length, 1);
       }
+      // MSAL initializes one correlation ID before building both query and form.
+      assert.equal(form.get("client-request-id"), requestId);
       assert.equal(form.get("grant_type"), "client_credentials");
       assert.equal(form.get("client_id"), client);
       assert.equal(form.get("scope"), expectedScope);
