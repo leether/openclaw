@@ -32,11 +32,11 @@ function fixture() {
   const closeWatcher = vi.fn();
   const watcher: FSWatcher = Object.assign(new EventEmitter(), {
     close: closeWatcher,
-    ref() {
-      return this;
+    ref(): FSWatcher {
+      return watcher;
     },
-    unref() {
-      return this;
+    unref(): FSWatcher {
+      return watcher;
     },
   });
   const input = { raw: "low 0\nmax 0\noom 0\noom_kill 0\n", inode: 3n };

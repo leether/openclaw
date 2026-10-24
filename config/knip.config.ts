@@ -36,6 +36,11 @@ const repositoryScriptEntries = [
   "scripts/fork-linux/native-smoke.cjs!",
   "scripts/fork-linux/package-manifest.mjs!",
   "scripts/fork-linux/installed-npm-proof.mjs!",
+  "scripts/fork-linux/patched-consumer-contract.mjs!",
+  "scripts/fork-linux/canvas-proof.mjs!",
+  "scripts/fork-linux/discord/discord-proof.mjs!",
+  "scripts/fork-linux/undici-proof.mjs!",
+  "scripts/fork-linux/msal/msal-proof.mjs!",
   // tsdown builds this private macOS app worker protocol entry by path.
   "src/node-host/mac-worker-entry.ts!",
   // CI imports this selector from its trusted harness inside an inline Node script.

@@ -6,12 +6,22 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fixtureSourceCallId } from "./installed-model-fixture.mjs";
+import {
+  collectMsalQualification,
+  collectUndiciQualification,
+} from "./security-consumer-manifest.mjs";
+import { collectConsumerQualification } from "./zod-consumer-manifest.mjs";
 
 const artifactRoot = process.env.FORK_ARTIFACT_DIR;
 assert.ok(artifactRoot && process.env.QUALIFIED_SHA);
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", timeout: 10000 }).trim();
 assert.equal(git("rev-parse", "HEAD"), process.env.QUALIFIED_SHA);
 const read = async (name) => JSON.parse(await fs.readFile(path.join(artifactRoot, name), "utf8"));
+const hashFile = async (name) => {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path.join(artifactRoot, name))) hash.update(chunk);
+  return hash.digest("hex");
+};
 const installedAudit = await read("installed-npm-audit.json");
 assert.equal(installedAudit.metadata.vulnerabilities.high, 0);
 assert.equal(installedAudit.metadata.vulnerabilities.critical, 0);
@@ -126,6 +136,15 @@ for (const version of ["24.22.1", "24.22.0"]) {
   }
 }
 const files = {};
+const undici = await collectUndiciQualification(read);
+const msal = await collectMsalQualification(read, hashFile);
+const sourceContractBytes = await fs.readFile("patches/zod4-consumers.json");
+const consumers = await collectConsumerQualification(
+  read,
+  hashFile,
+  JSON.parse(sourceContractBytes.toString("utf8")),
+  createHash("sha256").update(sourceContractBytes).digest("hex"),
+);
 for (const name of [
   "openclaw-candidate.tgz",
   "openclaw-linux-x64-runtime.tar.gz",
@@ -133,6 +152,29 @@ for (const name of [
   "installed-package-lock.json",
   "installed-dependencies.json",
   "installed-npm-audit.json",
+  "discord-candidate.tgz",
+  "discord-linux-x64-runtime.tar.gz",
+  "discord-installed-package-lock.json",
+  "discord-installed-dependencies.json",
+  "discord-installed-npm-audit.json",
+  "msteams-candidate.tgz",
+  "msteams-linux-x64-runtime.tar.gz",
+  "msteams-installed-package-lock.json",
+  "msteams-installed-dependencies.json",
+  "msteams-installed-npm-audit.json",
+  "msteams-capture.json",
+  "patched-source-inputs-before.json",
+  "patched-source-inputs-after.json",
+  "canvas-capture.json",
+  "discord-capture.json",
+  "canvas-browser/report.json",
+  ...["installed", "restored"].flatMap((prefix) =>
+    ["24.22.1", "24.22.0"].flatMap((version) =>
+      ["canvas", "discord", "undici", "msteams"].map(
+        (consumer) => `${prefix}-${consumer}-proof-${version}.json`,
+      ),
+    ),
+  ),
   "node-verification/node-v24.22.0-linux-x64.tar.xz",
   "node-verification/node-v24.22.1-linux-x64.tar.xz",
 ]) {
@@ -163,6 +205,9 @@ const report = {
   dependencyBoundary:
     "source frozen pnpm lock; standalone npm resolution captured in installed-package-lock.json and installed-dependencies.json",
   installedProductionAudit: installedAudit.metadata.vulnerabilities,
+  migratedConsumers: consumers,
+  undici,
+  msal,
   offlineRestore:
     "runtime archive includes the complete npm installation and Linux production dependencies; verified Node 24.22.0 and 24.22.1 archives are included separately",
   limitations: [
@@ -170,6 +215,9 @@ const report = {
     "480/240-second values verify the budget protocol with fast mock answers, not elapsed eight/four-minute execution",
     "Does not prove production performance, live configuration or first migration safety",
     "Metadata CLI proof invokes the actual installed entry with a matching startup environment, not an external adapter",
+    "Canvas proof covers the named register/JSONL/compose closure and two browser bundles, not every lazy Canvas or upstream conformance path",
+    "The independent Discord proof exercises the installed SDK and generated browser asset with synthetic transport, not a live channel",
+    "Teams authentication proof uses actual parent/MSAL code with synthetic transport; it does not prove live Azure authorization or uniform public caller AbortSignal propagation",
     "http-cache-semantics advisory CVE-2026-93748 is disputed by its maintainer; a passing audit is not proof of its alleged semantic fix",
   ],
   nativePhases: native.map(({ node, mode, sqliteRows }) => ({ node, mode, sqliteRows })),

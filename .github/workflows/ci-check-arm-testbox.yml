@@ -93,7 +93,7 @@ jobs:
     permissions:
       contents: read
     name: "check-arm"
-    runs-on: ${{ github.event_name == 'pull_request' && 'blacksmith-16vcpu-ubuntu-2404-arm' || needs.admission.outputs.runner }}
+    runs-on: ${{ github.event_name == 'pull_request' && (github.repository == 'leether/openclaw' && github.event.repository.visibility == 'public' && github.event.pull_request.head.repo.full_name == github.repository && 'ubuntu-24.04-arm' || 'blacksmith-16vcpu-ubuntu-2404-arm') || needs.admission.outputs.runner }}
     timeout-minutes: ${{ fromJSON(needs.admission.outputs.minutes || '120') }}
     steps:
       - name: Begin Testbox
