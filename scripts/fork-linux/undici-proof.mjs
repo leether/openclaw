@@ -31,7 +31,7 @@ async function bounded(promise, ms = 2000) {
   }
 }
 
-export async function qualifyUndici(packageRoot) {
+async function qualifyUndici(packageRoot) {
   const root = fs.realpathSync(packageRoot);
   const require = createRequire(path.join(root, "package.json"));
   const manifestPath = fs.realpathSync(require.resolve("undici/package.json"));

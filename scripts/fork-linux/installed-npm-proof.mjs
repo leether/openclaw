@@ -34,7 +34,7 @@ export function parseArguments(argv) {
   };
 }
 
-export async function runInstalledNpmProof({ packageRoot, runtime, root, archives }, report) {
+async function runInstalledNpmProof({ packageRoot, runtime, root, archives }, report) {
   assert.equal(
     await fs.realpath(runtime),
     await fs.realpath(process.execPath),

@@ -70,9 +70,12 @@ function verifyCore(root, captured) {
 }
 async function capture(sourceRoot) {
   const root = rootPath(sourceRoot);
-  const { verifySourceInputs } = await import(
-    pathToFileURL(ownedFile(root, "scripts/fork-linux/patched-consumer-contract.mjs"))
+  assert.equal(
+    ownedFile(root, "scripts/fork-linux/patched-consumer-contract.mjs"),
+    fs.realpathSync(fileURLToPath(new URL("./patched-consumer-contract.mjs", import.meta.url))),
+    "Capture verifier must belong to the selected source checkout",
   );
+  const { verifySourceInputs } = await import("./patched-consumer-contract.mjs");
   const verified = verifySourceInputs(root);
   assert.equal(verified.passed, true);
   const patchedInputs = verified.packages.filter((x) => x.name.startsWith("@a2ui/"));
@@ -247,7 +250,7 @@ async function browser(installedRoot, restoredRoot, playwrightRoot, capturePath,
   return result;
 }
 
-export async function main(args) {
+async function main(args) {
   const [phase, ...values] = args;
   assert.ok(
     ["capture", "runtime", "browser", "sandbox", "__browser_worker", "__sandbox_worker"].includes(
