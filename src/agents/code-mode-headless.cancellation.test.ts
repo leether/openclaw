@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDeferred } from "../../test/helpers/promise.js";
+import { createDeferred, withinTest } from "../../test/helpers/promise.js";
 import { CodeModeHeadlessAbortError, CodeModeHeadlessTimeoutError } from "./code-mode-errors.js";
 import { runCodeModeScriptHeadless } from "./code-mode.js";
 import {
@@ -8,6 +8,7 @@ import {
   resetCodeModeTestState,
   testing,
 } from "./code-mode.test-support.js";
+import { getActualToolExecutionCount } from "./timer-execution-budget.js";
 import { jsonResult } from "./tools/common.js";
 
 describe("headless Code Mode cancellation", () => {
@@ -20,7 +21,9 @@ describe("headless Code Mode cancellation", () => {
     }
   });
 
-  it("classifies a wall-clock expiry observed during a real tool leg as timeout", async () => {
+  it("classifies a wall-clock expiry observed during a real tool leg as timeout", async ({
+    signal,
+  }) => {
     // Only the timer clock is virtual here: the production headless entry, its deadline
     // scope, a real worker and real tools all run unchanged. The first leg parks the run
     // for a known span of real time, and the scope measures its remaining budget with an
@@ -38,9 +41,12 @@ describe("headless Code Mode cancellation", () => {
       });
       return jsonResult({ ok: true });
     });
-    const slowLeg = pluginToolWithExecute("slow_leg", "Never settles on its own", async () => {
+    const sourceResult = jsonResult({ ok: true });
+    const source = createDeferred<typeof sourceResult>();
+    const caller = new AbortController();
+    const slowLeg = pluginToolWithExecute("slow_leg", "Held until fixture cleanup", async () => {
       toolStarted.resolve();
-      return await new Promise<never>(() => {});
+      return await source.promise;
     });
     const startedAt = performance.now();
 
@@ -48,21 +54,32 @@ describe("headless Code Mode cancellation", () => {
       ctx: createHeadlessCodeModeHarness([warmUp, slowLeg]),
       code: "await warm_up({}); await slow_leg({}); return true;",
       wallClockMs,
+      signal: caller.signal,
     });
-    await toolStarted.promise;
-    // Assert the separation before advancing: the second leg's deadline is armed no later
-    // than wallClockMs - separationMs, which this advance reaches while the abort timer at
-    // wallClockMs stays pending.
-    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(separationMs);
+    try {
+      await withinTest(toolStarted.promise, signal);
+      // Assert the separation before advancing: the second leg's deadline is armed no later
+      // than wallClockMs - separationMs, which this advance reaches while the abort timer at
+      // wallClockMs stays pending.
+      expect(performance.now() - startedAt).toBeGreaterThanOrEqual(separationMs);
 
-    await vi.advanceTimersByTimeAsync(wallClockMs - separationMs / 2);
-    const result = await resultPromise;
+      await vi.advanceTimersByTimeAsync(wallClockMs - separationMs / 2);
+      const result = await withinTest(resultPromise, signal);
 
-    expect(result, JSON.stringify(result)).toMatchObject({
-      status: "failed",
-      code: "timeout",
-      toolCallCount: 2,
-    });
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: "failed",
+        code: "timeout",
+        toolCallCount: 2,
+      });
+      expect(getActualToolExecutionCount()).toBe(1);
+    } finally {
+      caller.abort();
+      source.resolve(sourceResult);
+      await Promise.allSettled([source.promise, resultPromise]);
+      vi.useRealTimers();
+      // Timeout settles the caller; only releasing the actual source drains its tracking.
+      await expect.poll(getActualToolExecutionCount).toBe(0);
+    }
   });
 
   it("completes after canceling a guest timer across two resumes", async () => {

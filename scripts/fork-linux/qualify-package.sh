@@ -15,6 +15,28 @@ sha256sum pnpm-lock.yaml package.json > "$FORK_ARTIFACT_DIR/source-inputs.sha256
   --config.supportedArchitectures.os=linux \
   --config.supportedArchitectures.cpu=x64 \
   --config.supportedArchitectures.libc=glibc
+# Exercise the leaked-source regression with the normal non-isolated runner in
+# one worker. This diagnostic group does not change the canonical shard policy.
+"${guard[@]}" 600 node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.agents-core.config.ts --maxWorkers=1 \
+  src/agents/code-mode.wait.test.ts src/agents/code-mode-headless.cancellation.test.ts \
+  src/agents/code-mode.output.test.ts \
+  src/agents/timer-execution-budget.test.ts \
+  --reporter=json --outputFile="$FORK_ARTIFACT_DIR/tool-source-settlement-tests.json"
+# Database-backed fixtures retain their existing owner and worker preparation.
+"${guard[@]}" 600 node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.infra.config.ts --maxWorkers=1 \
+  src/agents/code-mode.bridge.lifecycle.test.ts \
+  --reporter=json --outputFile="$FORK_ARTIFACT_DIR/tool-source-lifecycle-tests.json"
+"${guard[@]}" 600 node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.gateway-server.config.ts --maxWorkers=1 \
+  src/gateway/server.private-completion.test.ts \
+  --reporter=json --outputFile="$FORK_ARTIFACT_DIR/private-completion-settlement-tests.json"
+"${guard[@]}" 600 node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.gateway-database-workers.config.ts --maxWorkers=1 \
+  src/gateway/server-methods/server-methods.test.ts \
+  -t 'gateway healthHandlers.status scope handling' \
+  --reporter=json --outputFile="$FORK_ARTIFACT_DIR/status-scope-drain-tests.json"
 "${guard[@]}" 120 node scripts/fork-linux/patched-consumer-contract.mjs \
   "$source_root" "$FORK_ARTIFACT_DIR/patched-source-inputs-before.json"
 # Prepare the two fixed official inputs through the managed subprocess owner.

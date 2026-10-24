@@ -58,10 +58,13 @@ function budget(
   return createTimerExecutionBudget({ ...spec, ...overrides }, controller, deadline);
 }
 afterEach(() => {
-  expect(getActualToolExecutionCount()).toBe(0);
-  expect(getTimerRequestCount()).toBe(0);
-  vi.useRealTimers();
-  resetAllLanes();
+  try {
+    expect(getActualToolExecutionCount()).toBe(0);
+    expect(getTimerRequestCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+    resetAllLanes();
+  }
 });
 
 describe("authenticated timer budget contract", () => {
@@ -147,8 +150,11 @@ describe("real tool execution boundary", () => {
       deferred.resolve(result);
       caller.abort();
       await settled;
-      await expect.poll(getActualToolExecutionCount).toBe(0);
-      clearToolSearchCatalog({ catalogRef });
+      try {
+        await expect.poll(getActualToolExecutionCount).toBe(0);
+      } finally {
+        clearToolSearchCatalog({ catalogRef });
+      }
     }
   });
   it("rejects the real CLI entry before lifecycle, credentials or backend preparation", async () => {
@@ -294,12 +300,15 @@ describe("real tool execution boundary", () => {
       return deferred.promise;
     });
     const pending = tool("baidu_search", execute).execute("legacy", { freshness: "month" });
-    await started.promise;
-    expect(execute).toHaveBeenCalledOnce();
-    expect(getActualToolExecutionCount()).toBe(1);
-    expect(execute.mock.calls[0]?.[1]).toEqual({ freshness: "month" });
-    deferred.resolve(result);
-    await pending;
+    try {
+      await started.promise;
+      expect(execute).toHaveBeenCalledOnce();
+      expect(getActualToolExecutionCount()).toBe(1);
+      expect(execute.mock.calls[0]?.[1]).toEqual({ freshness: "month" });
+    } finally {
+      deferred.resolve(result);
+      await pending;
+    }
   });
   it("reserves the final 120 seconds for answering without invoking more tools", async () => {
     vi.useFakeTimers();
@@ -325,17 +334,22 @@ describe("real tool execution boundary", () => {
     await budget().run(async () => {
       const pending = tool("tavily_search", execute).execute("late", {});
       const rejected = expect(pending).rejects.toThrow("research tool budget");
-      await vi.advanceTimersByTimeAsync(45000);
-      await rejected;
-      expect(execute.mock.calls[0]?.[2]?.aborted).toBe(true);
-      const drain = createGatewayActiveWorkSnapshot();
-      expect(drain.idle).toBe(false);
-      expect(drain.counts.actualToolExecutions).toBe(1);
-      expect(drain.blockers).toContainEqual(
-        expect.objectContaining({ kind: "tool-execution", count: 1 }),
-      );
-      deferred.resolve(result);
-      await vi.advanceTimersByTimeAsync(0);
+      const settled = Promise.allSettled([pending, rejected]);
+      try {
+        await vi.advanceTimersByTimeAsync(45000);
+        await rejected;
+        expect(execute.mock.calls[0]?.[2]?.aborted).toBe(true);
+        const drain = createGatewayActiveWorkSnapshot();
+        expect(drain.idle).toBe(false);
+        expect(drain.counts.actualToolExecutions).toBe(1);
+        expect(drain.blockers).toContainEqual(
+          expect.objectContaining({ kind: "tool-execution", count: 1 }),
+        );
+      } finally {
+        deferred.resolve(result);
+        await settled;
+        await vi.advanceTimersByTimeAsync(0);
+      }
       expect(getActualToolExecutionCount()).toBe(0);
     });
   });
@@ -371,16 +385,19 @@ describe("real tool execution boundary", () => {
       await wrapped.execute("cancelled", {});
     });
     const rejected = expect(pending).rejects.toThrow();
-    await started.promise;
-    caller.abort(new Error("synthetic caller cancellation"));
-    await rejected;
-    expect(getTimerRequestCount()).toBe(0);
-    expect(createGatewayActiveWorkSnapshot().counts.actualToolExecutions).toBe(1);
-    deferred.resolve(result);
-    await deferred.promise;
-    await new Promise<void>((resolve) => {
-      queueMicrotask(() => queueMicrotask(resolve));
-    });
+    const settled = Promise.allSettled([pending, rejected]);
+    try {
+      await started.promise;
+      caller.abort(new Error("synthetic caller cancellation"));
+      await rejected;
+      expect(getTimerRequestCount()).toBe(0);
+      expect(createGatewayActiveWorkSnapshot().counts.actualToolExecutions).toBe(1);
+    } finally {
+      caller.abort();
+      deferred.resolve(result);
+      await settled;
+      await expect.poll(getActualToolExecutionCount).toBe(0);
+    }
   });
   it("shortens a search to the remaining research window", async () => {
     vi.useFakeTimers();
@@ -388,11 +405,16 @@ describe("real tool execution boundary", () => {
     await budget({ remainingMs: 130000 }).run(async () => {
       const pending = tool("baidu_search", () => deferred.promise).execute("short", {});
       const rejected = expect(pending).rejects.toThrow("research tool budget");
-      await vi.advanceTimersByTimeAsync(10000);
-      await rejected;
-      expect(getActualToolExecutionCount()).toBe(1);
-      deferred.resolve(result);
-      await vi.advanceTimersByTimeAsync(0);
+      const settled = Promise.allSettled([pending, rejected]);
+      try {
+        await vi.advanceTimersByTimeAsync(10000);
+        await rejected;
+        expect(getActualToolExecutionCount()).toBe(1);
+      } finally {
+        deferred.resolve(result);
+        await settled;
+        await vi.advanceTimersByTimeAsync(0);
+      }
     });
   });
   it.each([480000, 240000])(
@@ -417,16 +439,23 @@ describe("real tool execution boundary", () => {
         );
       });
       const rejected = expect(queued).rejects.toThrow("total execution budget");
-      await vi.advanceTimersByTimeAsync(remainingMs);
-      expect(controller.signal.aborted).toBe(true);
-      expect(deadline).toHaveBeenCalledOnce();
-      release.resolve();
-      await first;
-      await rejected;
-      await expect(
-        retained!.execute("read", undefined, async () => execute("retained", {})),
-      ).rejects.toThrow();
-      expect(execute).not.toHaveBeenCalled();
+      const settled = Promise.allSettled([first, queued, rejected]);
+      try {
+        await vi.advanceTimersByTimeAsync(remainingMs);
+        expect(controller.signal.aborted).toBe(true);
+        expect(deadline).toHaveBeenCalledOnce();
+        release.resolve();
+        await first;
+        await rejected;
+        await expect(
+          retained!.execute("read", undefined, async () => execute("retained", {})),
+        ).rejects.toThrow();
+        expect(execute).not.toHaveBeenCalled();
+      } finally {
+        controller.abort();
+        release.resolve();
+        await settled;
+      }
     },
   );
   it("does not count discovery as a search but still enforces the reserve", async () => {

@@ -2,7 +2,7 @@
 import { getEventListeners } from "node:events";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDeferred } from "../../test/helpers/promise.js";
+import { createDeferred, withinTest } from "../../test/helpers/promise.js";
 import { composeTranscriptDisplay } from "../chat/transcript-display-position.js";
 import { resolveDefaultSessionStorePath } from "../config/sessions/paths.js";
 import { upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
@@ -35,6 +35,7 @@ import { emitAssistantTextDeltaAndEnd } from "./embedded-agent-subscribe.e2e-har
 import { countActiveToolExecutions } from "./embedded-agent-subscribe.handlers.tools.js";
 import { attachInternalToolExecutionPreparer } from "./runtime/internal-hooks.js";
 import { SessionManager } from "./sessions/session-manager.js";
+import { getActualToolExecutionCount } from "./timer-execution-budget.js";
 import { addClientToolsToToolCatalog } from "./tool-search-catalog.js";
 import { ToolSearchRuntime } from "./tool-search-runtime.js";
 import { clearToolSearchCatalog } from "./tool-search.js";
@@ -698,7 +699,9 @@ describe("Code Mode subscribed bridge lifecycle", () => {
     expect(countActiveToolExecutions(owner.runId)).toBe(0);
   });
 
-  it("does not return a closed snapshot when owner abort races the wait deadline", async () => {
+  it("does not return a closed snapshot when owner abort races the wait deadline", async ({
+    signal,
+  }) => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const owner = createSubscribedCodeModeHarness({
       name: "abort-wait-deadline",
@@ -706,33 +709,51 @@ describe("Code Mode subscribed bridge lifecycle", () => {
     });
     const lifecycle = vi.spyOn(owner.subscription, "runToolLifecycle");
     const started = createDeferred();
-    const stalled = pluginToolWithExecute("stalled", "Await cancellation", async () => {
+    const sourceResult = jsonResult({ ok: true });
+    const source = createDeferred<typeof sourceResult>();
+    const calls: Promise<unknown>[] = [];
+    const stalled = pluginToolWithExecute("stalled", "Held until fixture cleanup", async () => {
       started.resolve();
-      return await new Promise<never>(() => {});
+      return await source.promise;
     });
     applyCodeModeCatalog({ ...owner, tools: [...owner.tools, stalled] });
     try {
       const execution = expectDefined(owner.tools[0], "owner exec").execute("deadline-exec", {
         code: "return await stalled({});",
       });
-      await started.promise;
+      calls.push(execution);
+      await withinTest(started.promise, signal);
       await vi.advanceTimersByTimeAsync(1_500);
-      const parked = resultDetails(await execution);
+      const parked = resultDetails(await withinTest(execution, signal));
       expect(parked.status).toBe("waiting");
       const waiting = expectDefined(owner.tools[1], "owner wait").execute("deadline-wait", {
         runId: parked.runId,
       });
+      calls.push(waiting);
       vi.advanceTimersByTime(1_499);
       owner.runAbortController.abort();
-      expect(resultDetails(await waiting)).toMatchObject({ status: "failed", code: "aborted" });
+      expect(resultDetails(await withinTest(waiting, signal))).toMatchObject({
+        status: "failed",
+        code: "aborted",
+      });
       expect(testing.activeRuns.size).toBe(0);
       expect(testing.resumingRunIds.size).toBe(0);
       // Abort returns before nested transcript and terminal finalization; join its owner.
       expect(lifecycle).toHaveBeenCalledOnce();
       await expect(lifecycle.mock.results[0]?.value).rejects.toThrow("Aborted");
       expect(countActiveToolExecutions(owner.runId)).toBe(0);
+      expect(getActualToolExecutionCount()).toBe(1);
     } finally {
-      lifecycle.mockRestore();
+      try {
+        owner.runAbortController.abort();
+        source.resolve(sourceResult);
+        await Promise.allSettled([source.promise, ...calls]);
+        vi.useRealTimers();
+        await resetCodeModeTestState();
+        await expect.poll(getActualToolExecutionCount).toBe(0);
+      } finally {
+        lifecycle.mockRestore();
+      }
     }
   });
 

@@ -19,6 +19,7 @@ import {
   resultDetails,
   testing,
 } from "./code-mode.test-support.js";
+import { getActualToolExecutionCount } from "./timer-execution-budget.js";
 import { clearToolSearchCatalog } from "./tool-search.js";
 import { jsonResult, type AnyAgentTool } from "./tools/common.js";
 import {
@@ -542,24 +543,33 @@ describe("Code Mode wait, scope, and suspended runs", () => {
   });
 
   it("rejects concurrent waits for the same suspended run", async () => {
+    const release = createDeferred();
+    let settled: Promise<unknown> = Promise.resolve();
     const { exec, wait } = harness(
       [
-        pluginToolWithExecute(
-          "slow",
-          "Slow helper",
-          async () => await new Promise<never>(() => {}),
-        ),
+        pluginToolWithExecute("slow", "Slow helper", async () => {
+          await release.promise;
+          return jsonResult({ completed: true });
+        }),
       ],
       { codeMode: { timeoutMs: 500 } },
     );
-    const first = resultDetails(
-      await exec.execute("concurrent", { code: "await slow({}); return 'done';" }),
-    );
-    expect(first.status).toBe("waiting");
-    const pending = wait.execute("wait-a", { runId: first.runId });
-    await expect(wait.execute("wait-b", { runId: first.runId })).rejects.toThrow(
-      "already being resumed",
-    );
-    expect(resultDetails(await pending)).toMatchObject({ status: "waiting", runId: first.runId });
+    try {
+      const first = resultDetails(
+        await exec.execute("concurrent", { code: "await slow({}); return 'done';" }),
+      );
+      expect(first.status).toBe("waiting");
+      const pending = wait.execute("wait-a", { runId: first.runId });
+      settled = Promise.allSettled([pending]);
+      await expect(wait.execute("wait-b", { runId: first.runId })).rejects.toThrow(
+        "already being resumed",
+      );
+      expect(resultDetails(await pending)).toMatchObject({ status: "waiting", runId: first.runId });
+    } finally {
+      // Disposing a suspended guest cancels its bridge race, not the actual tool.
+      release.resolve();
+      await settled;
+      await expect.poll(getActualToolExecutionCount).toBe(0);
+    }
   });
 });

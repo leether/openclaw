@@ -3,6 +3,21 @@
 This secretless workflow runs only in `leether/openclaw`. It adds a complete
 Linux x64 package qualification without changing upstream CI or review gates.
 
+A focused four-file shared-worker regression runs through the repository's normal
+non-isolated agents runner before packaging. It requires cancelled Code Mode
+fixtures to release and join their actual source Promises, and retains the
+timer/actual-tool zero-drain assertions. Its single worker exposes process-global
+state leaks; the canonical full shard still uses its normal scheduling policy.
+The database-backed Code Mode lifecycle fixture runs separately through its
+existing infra owner, including worker preparation. The private-completion
+receipt regression uses its existing Gateway server owner and waits for the
+recorder's persistence barrier before reading the abandoned outcome. The status
+scope cases use their existing Gateway database-worker owner with explicit idle queue
+and Cron fixtures, rather than weakening the production drain reader. Each
+group has a 600-second outer deadline and retains its JSON result with diagnostics.
+Historical shard logs do not identify each file's worker, so they cannot uniquely
+assign a leaked count to one prior fixture by timestamp alone.
+
 The manual `resolve-lock` mode only exports a lock candidate when an approved
 dependency change cannot be resolved within the local host's resource budget.
 It uses the exact selected source commit, verified Node 24.22.1, and the declared
