@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { constants, sign, X509Certificate } from "node:crypto";
+import { constants, generateKeyPairSync, sign, X509Certificate } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createRuntimeCertificate } from "../../scripts/fork-linux/msal/certificate.mjs";
@@ -22,15 +22,16 @@ afterEach(() => {
 });
 
 describe("ephemeral certificate test material", () => {
-  it("uses one bounded fixed OpenSSL process, only stdin, and a verified RSA-2048 pair", () => {
+  it("captures one bounded OpenSSL-generated RSA-2048 pair without descriptor filenames", () => {
     const [file, args, options] = vi.mocked(spawnSync).mock.calls[0] ?? [];
     expect(file).toBe("/usr/bin/openssl");
     expect(args).toEqual([
       "req",
       "-new",
       "-x509",
-      "-key",
-      "/dev/stdin",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
       "-subj",
       "/CN=msal-qualification.invalid",
       "-days",
@@ -44,38 +45,39 @@ describe("ephemeral certificate test material", () => {
       timeout: 5000,
       killSignal: "SIGKILL",
       maxBuffer: 8192,
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    assert.ok(options && typeof options.input === "string");
-    expect(options.input === generated.privateKey).toBe(true);
+    assert.ok(options);
+    expect(options.input).toBeUndefined();
     expect(
       new X509Certificate(generated.certificate).publicKey.asymmetricKeyDetails?.modulusLength,
     ).toBe(2048);
     expect(generated.proof).toMatchObject({
       generatedAtRuntime: true,
+      generationMode: "openssl-req-newkey-stdout-v1",
       privateKeyPersisted: false,
       keyBits: 2048,
       pairVerified: true,
       openssl: { closed: true, exitCode: 0, signal: null },
     });
     expect(generated.proof.openssl.elapsedMs).toBeLessThanOrEqual(5000);
+    expect(generated.proof.keyAndCertificateGenerationMs).toBe(generated.proof.openssl.elapsedMs);
+    expect(generated.proof.totalElapsedMs).toBeGreaterThanOrEqual(
+      generated.proof.keyAndCertificateGenerationMs,
+    );
+    expect(generated.proof.totalElapsedMs).toBeLessThan(25000);
   });
-  it("does not launch OpenSSL when key generation consumed its reserved time", () => {
-    vi.spyOn(process.hrtime, "bigint").mockReturnValueOnce(0n).mockReturnValue(20000000000n);
-    expect(() => createRuntimeCertificate(30000000000n)).toThrow("leave time");
-    expect(spawnSync).not.toHaveBeenCalled();
-  });
-  it("refuses an already consumed parent budget before generating a key", () => {
+  it("refuses an already consumed parent budget before launching OpenSSL", () => {
     vi.spyOn(process.hrtime, "bigint").mockReturnValue(24000000000n);
     expect(() => createRuntimeCertificate(30000000000n)).toThrow(
-      "parent deadline before certificate key generation",
+      "parent deadline before certificate generation",
     );
     expect(spawnSync).not.toHaveBeenCalled();
   });
-  it("subtracts 11 seconds of startup and 18 seconds of key generation before OpenSSL", () => {
+  it("deducts startup and preparation from the original deadline before OpenSSL", () => {
     vi.spyOn(process.hrtime, "bigint")
       .mockReturnValueOnce(11000000000n)
-      .mockReturnValue(29000000000n);
+      .mockReturnValue(24000000000n);
     expect(() => createRuntimeCertificate(30000000000n)).toThrow("parent deadline before OpenSSL");
     expect(spawnSync).not.toHaveBeenCalled();
   });
@@ -128,37 +130,138 @@ describe("ephemeral certificate test material", () => {
       await expect(endpoint.request(url, "POST", form.toString())).rejects.toThrow();
     },
   );
-  it.each(["timeout", "exit", "signal", "oversize", "invalid-certificate", "wrong-key"])(
-    "refuses %s subprocess output",
-    (fault) => {
-      const result = {
+  it.each([
+    "timeout",
+    "exit",
+    "signal",
+    "oversize",
+    "duplicate-key",
+    "duplicate-certificate",
+    "missing-key",
+    "missing-certificate",
+    "extra-content",
+    "legacy-key-label",
+    "invalid-key",
+    "invalid-certificate",
+    "wrong-key",
+  ])("refuses %s subprocess output", (fault) => {
+    const result = {
+      pid: 0,
+      status: 0,
+      signal: null,
+      output: [],
+      stdout: Buffer.from(`${generated.privateKey}\n${generated.certificate}\n`),
+      stderr: Buffer.alloc(0),
+    } satisfies ReturnType<typeof spawnSync>;
+    if (fault === "timeout") {
+      Object.assign(result, { error: new Error("ETIMEDOUT"), status: null, signal: "SIGKILL" });
+    }
+    if (fault === "exit") {
+      result.status = 1;
+    }
+    if (fault === "signal") {
+      Object.assign(result, { signal: "SIGKILL" });
+    }
+    if (fault === "oversize") {
+      result.stderr = Buffer.alloc(16385);
+    }
+    if (fault === "duplicate-key") {
+      result.stdout = Buffer.from(`${generated.privateKey}\n${result.stdout.toString("utf8")}`);
+    }
+    if (fault === "duplicate-certificate") {
+      result.stdout = Buffer.from(`${result.stdout.toString("utf8")}\n${generated.certificate}`);
+    }
+    if (fault === "missing-key") {
+      result.stdout = Buffer.from(generated.certificate);
+    }
+    if (fault === "missing-certificate") {
+      result.stdout = Buffer.from(generated.privateKey);
+    }
+    if (fault === "extra-content") {
+      result.stdout = Buffer.from(`${result.stdout.toString("utf8")}\nextra content`);
+    }
+    if (fault === "legacy-key-label") {
+      result.stdout = Buffer.from(
+        result.stdout.toString().replaceAll("PRIVATE KEY", "RSA PRIVATE KEY"),
+      );
+    }
+    if (fault === "invalid-key") {
+      result.stdout = Buffer.from(
+        `${generated.privateKey.replace(/\r?\n[A-Za-z0-9+/=\r\n]+(?=-----END )/, "\nYmFk\n")}\n${generated.certificate}`,
+      );
+    }
+    if (fault === "invalid-certificate") {
+      result.stdout = Buffer.from(
+        `${generated.privateKey}\n${generated.certificate.replace(/\r?\n[A-Za-z0-9+/=\r\n]+(?=-----END )/, "\nYmFk\n")}`,
+      );
+    }
+    if (fault === "wrong-key") {
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      result.stdout = Buffer.from(
+        `${privateKey.export({ type: "pkcs8", format: "pem" })}\n${generated.certificate}`,
+      );
+    }
+    vi.mocked(spawnSync).mockReturnValueOnce(result);
+    // Only wrong-key may fail at pair verification. Every process/output
+    // fault must be rejected for its own reason before that later check.
+    const errors: Record<string, string> = {
+      timeout: "certificate subprocess failed",
+      exit: "certificate subprocess exit",
+      signal: "certificate subprocess signal",
+      oversize: "certificate subprocess output bound",
+      "duplicate-key": "invalid generated PEM layout",
+      "duplicate-certificate": "invalid generated PEM layout",
+      "missing-key": "invalid generated PEM layout",
+      "missing-certificate": "invalid generated PEM layout",
+      "extra-content": "invalid generated PEM layout",
+      "legacy-key-label": "invalid generated PEM layout",
+      "invalid-key": "invalid generated private key",
+      "invalid-certificate": "invalid generated certificate",
+      "wrong-key": "certificate/key pair",
+    };
+    const expected = errors[fault];
+    assert.ok(expected);
+    expect(() => createRuntimeCertificate(freshDeadline())).toThrow(expected);
+  });
+  it.each([
+    {
+      fault: "subprocess deadline",
+      afterProcess: 5001000000n,
+      finished: 5001000000n,
+      deadline: 30000000000n,
+      expected: "certificate subprocess deadline",
+    },
+    {
+      fault: "total deadline",
+      afterProcess: 1000000n,
+      finished: 25000000000n,
+      deadline: 30000000000n,
+      expected: "leave time for the authentication scenarios",
+    },
+    {
+      fault: "parent deadline",
+      afterProcess: 1000000n,
+      finished: 8000000000n,
+      deadline: 7000000000n,
+      expected: "parent certificate deadline",
+    },
+  ])(
+    "refuses $fault after process completion",
+    ({ afterProcess, finished, deadline, expected }) => {
+      vi.mocked(spawnSync).mockReturnValueOnce({
         pid: 0,
         status: 0,
         signal: null,
         output: [],
-        stdout: Buffer.from(generated.certificate),
+        stdout: Buffer.from(`${generated.privateKey}\n${generated.certificate}\n`),
         stderr: Buffer.alloc(0),
-      } satisfies ReturnType<typeof spawnSync>;
-      if (fault === "timeout")
-        Object.assign(result, { error: new Error("ETIMEDOUT"), status: null, signal: "SIGKILL" });
-      if (fault === "exit") result.status = 1;
-      if (fault === "signal") Object.assign(result, { signal: "SIGKILL" });
-      if (fault === "oversize") result.stderr = Buffer.alloc(16385);
-      if (fault === "invalid-certificate") result.stdout = Buffer.from("invalid certificate");
-      vi.mocked(spawnSync).mockReturnValueOnce(result);
-      // Only wrong-key may fail at pair verification. Every process/output
-      // fault must be rejected for its own reason before that later check.
-      const errors: Record<string, string> = {
-        timeout: "certificate subprocess failed",
-        exit: "certificate subprocess exit",
-        signal: "certificate subprocess signal",
-        oversize: "certificate subprocess output bound",
-        "invalid-certificate": "invalid generated certificate",
-        "wrong-key": "certificate/key pair",
-      };
-      const expected = errors[fault];
-      assert.ok(expected);
-      expect(() => createRuntimeCertificate(freshDeadline())).toThrow(expected);
+      });
+      vi.spyOn(process.hrtime, "bigint")
+        .mockReturnValueOnce(0n)
+        .mockReturnValueOnce(0n)
+        .mockReturnValueOnce(afterProcess)
+        .mockReturnValue(finished);
+      expect(() => createRuntimeCertificate(deadline)).toThrow(expected);
     },
   );
 });

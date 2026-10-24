@@ -146,13 +146,14 @@ export async function collectMsalQualification(read, hashFile) {
               generated.parentRemainingBeforeOpenSslMs <= generated.parentRemainingAtStartMs,
           );
           assert.ok(
-            Number.isSafeInteger(generated.keyGenerationMs) &&
-              generated.keyGenerationMs >= 0 &&
-              generated.keyGenerationMs < 20000,
+            Number.isSafeInteger(generated.keyAndCertificateGenerationMs) &&
+              generated.keyAndCertificateGenerationMs >= 0 &&
+              generated.keyAndCertificateGenerationMs <= 5000,
           );
+          assert.equal(generated.generationMode, "openssl-req-newkey-stdout-v1");
           assert.ok(
             Number.isSafeInteger(generated.totalElapsedMs) &&
-              generated.totalElapsedMs >= generated.keyGenerationMs &&
+              generated.totalElapsedMs >= generated.keyAndCertificateGenerationMs &&
               generated.totalElapsedMs < 25000,
           );
           assert.equal(generated.privateKeyPersisted, false);
@@ -165,6 +166,7 @@ export async function collectMsalQualification(read, hashFile) {
               generated.openssl.elapsedMs >= 0 &&
               generated.openssl.elapsedMs <= 5000,
           );
+          assert.equal(generated.openssl.elapsedMs, generated.keyAndCertificateGenerationMs);
           assert.ok(
             Number.isSafeInteger(generated.openssl.outputBytes) &&
               generated.openssl.outputBytes > 0 &&

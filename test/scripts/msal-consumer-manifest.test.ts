@@ -71,10 +71,11 @@ function fixture() {
             certificateGeneration: scenario.includes("certificate")
               ? {
                   generatedAtRuntime: true,
+                  generationMode: "openssl-req-newkey-stdout-v1",
                   keyBits: 2048,
                   parentRemainingAtStartMs: 29900,
                   parentRemainingBeforeOpenSslMs: 29890,
-                  keyGenerationMs: 10,
+                  keyAndCertificateGenerationMs: 10,
                   totalElapsedMs: 20,
                   privateKeyPersisted: false,
                   pairVerified: true,
@@ -122,9 +123,11 @@ function fixture() {
     };
   }
   const runtime = new Map<string, ReturnType<typeof make>>();
-  for (const prefix of ["installed", "restored"])
-    for (const version of ["24.22.1", "24.22.0"])
+  for (const prefix of ["installed", "restored"]) {
+    for (const version of ["24.22.1", "24.22.0"]) {
       runtime.set(`${prefix}-msteams-proof-${version}.json`, make(version));
+    }
+  }
   const run = () =>
     collectMsalQualification(
       async (name: string) =>
@@ -155,6 +158,13 @@ describe("actual Teams/MSAL proof aggregation", () => {
     "missing-case",
     "not-signed",
     "static-key",
+    "wrong-generation-mode",
+    "missing-generation-time",
+    "negative-generation-time",
+    "generation-timeout",
+    "generation-time-disagrees",
+    "total-before-generation",
+    "total-timeout",
     "wrong-key-size",
     "missing-parent-deadline",
     "exhausted-parent-deadline",
@@ -184,38 +194,119 @@ describe("actual Teams/MSAL proof aggregation", () => {
     const managed = proof.cells[2]?.result.proof.authContract;
     const federation = proof.cells[6]?.result.proof.authContract;
     assert.ok(managed && federation);
-    if (fault === "missing") f.runtime.delete(name);
-    if (fault === "old-msal") parent.msal.version = "5.6.0";
-    if (fault === "wrong-common") parent.msal.commonVersion = "old";
-    if (fault === "wrong-parent") parent.version = "4.0.0";
-    if (fault === "old-capture") proof.contractSha256 = "b".repeat(64);
-    if (fault === "outside-plugin") parent.parentRelative = "../other-parent";
-    if (fault === "not-reverified") proof.identityReverifiedAfterExecution = false;
-    if (fault === "high-audit") f.audit.metadata.vulnerabilities.high = 1;
-    if (fault === "missing-cell") proof.cells.pop();
-    if (fault === "missing-case") child.proof.cases.pop();
-    if (fault === "not-signed") child.proof.signatureChecks = 0;
+    if (fault === "missing") {
+      f.runtime.delete(name);
+    }
+    if (fault === "old-msal") {
+      parent.msal.version = "5.6.0";
+    }
+    if (fault === "wrong-common") {
+      parent.msal.commonVersion = "old";
+    }
+    if (fault === "wrong-parent") {
+      parent.version = "4.0.0";
+    }
+    if (fault === "old-capture") {
+      proof.contractSha256 = "b".repeat(64);
+    }
+    if (fault === "outside-plugin") {
+      parent.parentRelative = "../other-parent";
+    }
+    if (fault === "not-reverified") {
+      proof.identityReverifiedAfterExecution = false;
+    }
+    if (fault === "high-audit") {
+      f.audit.metadata.vulnerabilities.high = 1;
+    }
+    if (fault === "missing-cell") {
+      proof.cells.pop();
+    }
+    if (fault === "missing-case") {
+      child.proof.cases.pop();
+    }
+    if (fault === "not-signed") {
+      child.proof.signatureChecks = 0;
+    }
     const generation = child.proof.certificateGeneration;
     assert.ok(generation);
-    if (fault === "static-key") generation.generatedAtRuntime = false;
-    if (fault === "wrong-key-size") generation.keyBits = 1024;
-    if (fault === "missing-parent-deadline") generation.parentRemainingAtStartMs = NaN;
-    if (fault === "exhausted-parent-deadline") generation.parentRemainingBeforeOpenSslMs = 6999;
-    if (fault === "persisted-key") generation.privateKeyPersisted = true;
-    if (fault === "pair-unverified") generation.pairVerified = false;
-    if (fault === "openssl-open") generation.openssl.closed = false;
-    if (fault === "openssl-timeout") generation.openssl.elapsedMs = 5001;
-    if (fault === "openssl-output") generation.openssl.outputBytes = 16385;
-    if (fault === "real-outbound") child.proof.socketAttempts = 1;
-    if (fault === "not-joined") child.proof.callerCancellation.sourceReleasedAndJoined = false;
-    if (fault === "server-listen") child.proof.serverListenCalls = 1;
-    if (fault === "old-node") proof.node = "v24.21.0";
-    if (fault === "child-open") child.closed = false;
-    if (fault === "wrong-identity-route") managed.mode = "system-federated";
-    if (fault === "unchecked-header") managed.headerChecks = 0;
-    if (fault === "unchecked-resource") managed.resourceChecks = 0;
-    if (fault === "missing-federation-join") federation.federationAssertionMatches = 0;
-    if (fault === "missing-issued-token") federation.exchangeTokenHashes = [];
+    if (fault === "static-key") {
+      generation.generatedAtRuntime = false;
+    }
+    if (fault === "wrong-generation-mode") {
+      generation.generationMode = "node-keygen-stdin";
+    }
+    if (fault === "missing-generation-time") {
+      generation.keyAndCertificateGenerationMs = Number.NaN;
+    }
+    if (fault === "negative-generation-time") {
+      generation.keyAndCertificateGenerationMs = -1;
+    }
+    if (fault === "generation-timeout") {
+      generation.keyAndCertificateGenerationMs = 5001;
+    }
+    if (fault === "generation-time-disagrees") {
+      generation.keyAndCertificateGenerationMs = 9;
+    }
+    if (fault === "total-before-generation") {
+      generation.totalElapsedMs = 9;
+    }
+    if (fault === "total-timeout") {
+      generation.totalElapsedMs = 25000;
+    }
+    if (fault === "wrong-key-size") {
+      generation.keyBits = 1024;
+    }
+    if (fault === "missing-parent-deadline") {
+      generation.parentRemainingAtStartMs = Number.NaN;
+    }
+    if (fault === "exhausted-parent-deadline") {
+      generation.parentRemainingBeforeOpenSslMs = 6999;
+    }
+    if (fault === "persisted-key") {
+      generation.privateKeyPersisted = true;
+    }
+    if (fault === "pair-unverified") {
+      generation.pairVerified = false;
+    }
+    if (fault === "openssl-open") {
+      generation.openssl.closed = false;
+    }
+    if (fault === "openssl-timeout") {
+      generation.openssl.elapsedMs = 5001;
+    }
+    if (fault === "openssl-output") {
+      generation.openssl.outputBytes = 16385;
+    }
+    if (fault === "real-outbound") {
+      child.proof.socketAttempts = 1;
+    }
+    if (fault === "not-joined") {
+      child.proof.callerCancellation.sourceReleasedAndJoined = false;
+    }
+    if (fault === "server-listen") {
+      child.proof.serverListenCalls = 1;
+    }
+    if (fault === "old-node") {
+      proof.node = "v24.21.0";
+    }
+    if (fault === "child-open") {
+      child.closed = false;
+    }
+    if (fault === "wrong-identity-route") {
+      managed.mode = "system-federated";
+    }
+    if (fault === "unchecked-header") {
+      managed.headerChecks = 0;
+    }
+    if (fault === "unchecked-resource") {
+      managed.resourceChecks = 0;
+    }
+    if (fault === "missing-federation-join") {
+      federation.federationAssertionMatches = 0;
+    }
+    if (fault === "missing-issued-token") {
+      federation.exchangeTokenHashes = [];
+    }
     await expect(f.run()).rejects.toThrow();
   });
 });
