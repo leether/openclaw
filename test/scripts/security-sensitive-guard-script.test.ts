@@ -8,7 +8,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse, stringify } from "yaml";
 import { loadSecurityReviewPolicy } from "../../scripts/github/security-review-policy.mjs";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
@@ -62,11 +64,16 @@ type Options = {
   changedFiles?: number;
   createdAt?: string;
   policy?: string;
+  configureRollout?: boolean;
+  repository?: string;
   script?: "security-sensitive-guard" | "dependency-guard";
 };
 
 function runGuard(options: Options = {}) {
   const root = tempDirs.make("security-sensitive-guard-");
+  const sourceRoot = fileURLToPath(new URL("../../", import.meta.url));
+  const repository = options.repository ?? "openclaw/openclaw";
+  const fixturePullPath = `/repos/${repository}/pulls/7`;
   const eventPath = path.join(root, "event.json");
   const logPath = path.join(root, "requests.jsonl");
   const fixturePath = path.join(root, "fixture.json");
@@ -82,17 +89,20 @@ function runGuard(options: Options = {}) {
     base: { sha: "b".repeat(40), ref: "main", repo: { id: 1 } },
   };
   const routes = {
-    [`GET ${pullPath}`]: pr,
-    [`GET /repos/openclaw/openclaw/commits/${headSha}/statuses`]: [],
-    "GET /repos/openclaw/openclaw/pulls/152415": rollout,
-    [`GET ${pullPath}/files`]: files,
-    [`GET ${pullPath}/reviews`]: options.reviews ?? [],
-    "GET /repos/openclaw/openclaw/issues/7/comments": options.comments ?? [notice],
-    "GET /repos/openclaw/openclaw/issues/7/labels": [],
-    "GET /repos/openclaw/openclaw/collaborators/contributor/permission": {
+    [`GET ${fixturePullPath}`]: pr,
+    [`GET /repos/${repository}/commits/${headSha}/statuses`]: [],
+    [`GET /repos/${repository}/pulls/152415`]: {
+      ...rollout,
+      base: { ref: "main", repo: { full_name: repository } },
+    },
+    [`GET ${fixturePullPath}/files`]: files,
+    [`GET ${fixturePullPath}/reviews`]: options.reviews ?? [],
+    [`GET /repos/${repository}/issues/7/comments`]: options.comments ?? [notice],
+    [`GET /repos/${repository}/issues/7/labels`]: [],
+    [`GET /repos/${repository}/collaborators/contributor/permission`]: {
       role_name: options.authorRole ?? "read",
     },
-    "GET /repos/openclaw/openclaw/collaborators/maintainer/permission": {
+    [`GET /repos/${repository}/collaborators/maintainer/permission`]: {
       role_name: options.approverRole ?? "maintain",
     },
     ...options.routes,
@@ -107,38 +117,48 @@ function runGuard(options: Options = {}) {
   writeFileSync(fixturePath, JSON.stringify({ routes, logPath, clock: true }));
   writeFileSync(logPath, "");
   const script = options.script ?? "security-sensitive-guard";
-  let scriptPath = path.resolve(`scripts/github/${script}.mjs`);
-  if (options.policy !== undefined) {
-    // Exercise policy edits in a separate trusted checkout without modifying the
-    // shared source tree or adding a production-only-for-tests policy override.
-    for (const source of [
-      "scripts/github/security-sensitive-guard.mjs",
-      "scripts/github/dependency-guard.mjs",
-      "scripts/github/security-review-policy.mjs",
-      "scripts/github/security-review-rollout.mjs",
-      "scripts/github/guard-review.mjs",
-      "scripts/github/guard-shared.mjs",
-      "scripts/lib/bounded-response.mjs",
-    ]) {
-      const target = path.join(root, source);
-      mkdirSync(path.dirname(target), { recursive: true });
-      copyFileSync(source, target);
-    }
-    mkdirSync(path.join(root, ".github"));
-    writeFileSync(path.join(root, ".github/security-review-policy.yml"), options.policy);
-    symlinkSync(path.resolve("node_modules"), path.join(root, "node_modules"), "junction");
-    scriptPath = realpathSync(path.join(root, `scripts/github/${script}.mjs`));
+  // Always execute real guard modules from a separate trusted checkout. Historical
+  // rollout cases declare their policy even when the current fork has no rollout.
+  for (const source of [
+    "scripts/github/security-sensitive-guard.mjs",
+    "scripts/github/dependency-guard.mjs",
+    "scripts/github/security-review-policy.mjs",
+    "scripts/github/security-review-rollout.mjs",
+    "scripts/github/guard-review.mjs",
+    "scripts/github/guard-shared.mjs",
+    "scripts/lib/bounded-response.mjs",
+  ]) {
+    const target = path.join(root, source);
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(path.join(sourceRoot, source), target);
   }
+  let fixturePolicy = options.policy;
+  if (fixturePolicy === undefined) {
+    const policy = parse(
+      readFileSync(path.join(sourceRoot, ".github/security-review-policy.yml"), "utf8"),
+    );
+    delete policy.rollout;
+    if (options.configureRollout ?? true) {
+      policy.rollout = { "pull-request": 152415 };
+    }
+    fixturePolicy = stringify(policy);
+  }
+  mkdirSync(path.join(root, ".github"));
+  writeFileSync(path.join(root, ".github/security-review-policy.yml"), fixturePolicy);
+  symlinkSync(path.join(sourceRoot, "node_modules"), path.join(root, "node_modules"), "junction");
+  const scriptPath = realpathSync(path.join(root, `scripts/github/${script}.mjs`));
   const result = spawnSync(
     process.execPath,
-    ["--import", path.resolve("test/fixtures/github-guard-fetch.mjs"), scriptPath],
+    ["--import", path.join(sourceRoot, "test/fixtures/github-guard-fetch.mjs"), scriptPath],
     {
       encoding: "utf8",
+      timeout: 30_000,
+      maxBuffer: 1024 * 1024,
       env: {
         PATH: process.env.PATH,
         GITHUB_TOKEN: "fixture-token",
         GITHUB_EVENT_PATH: eventPath,
-        GITHUB_REPOSITORY: "openclaw/openclaw",
+        GITHUB_REPOSITORY: repository,
         GITHUB_RUN_ID: "123",
         OPENCLAW_GUARD_TEST_FIXTURE: fixturePath,
       },
@@ -580,6 +600,37 @@ describe("security-sensitive guard entry point", () => {
         expect(result.status).toBe(1);
         expect(result.statuses).toEqual(["failure"]);
       });
+    },
+  );
+
+  it.each([
+    { script: "security-sensitive-guard" as const, filename: "src/gateway/auth.ts" },
+    { script: "dependency-guard" as const, filename: "pnpm-workspace.yaml" },
+  ])(
+    "$script requires approval on the fork without a rollout exemption",
+    ({ script, filename }) => {
+      const result = runGuard({
+        script,
+        repository: "leether/openclaw",
+        configureRollout: false,
+        createdAt: "2025-01-01T00:00:00Z",
+        files: [{ filename }],
+        comments: [],
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.statuses).toEqual(["failure", "failure"]);
+      expect(result.comment).toContain("/allow-");
+      expect(result.comment).toContain(filename);
+      expect(result.stdout).not.toContain("grandfathered");
+      expect(result.requests).toContainEqual({
+        method: "GET",
+        path: "/repos/leether/openclaw/pulls/7/files",
+      });
+      expect(result.requests.some((request) => request.path?.includes("/pulls/152415"))).toBe(
+        false,
+      );
+      expect(result.requests.some((request) => request.path?.includes("/compare/"))).toBe(false);
+      expect(result.requests.some((request) => request.path === "/graphql")).toBe(false);
     },
   );
 
