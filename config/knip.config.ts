@@ -41,6 +41,15 @@ const repositoryScriptEntries = [
   "scripts/fork-linux/discord/discord-proof.mjs!",
   "scripts/fork-linux/undici-proof.mjs!",
   "scripts/fork-linux/msal/msal-proof.mjs!",
+  // Discord's proof driver launches these CLI children and imports the public entry in its child.
+  "scripts/fork-linux/discord/frozen/compat.mjs!",
+  "scripts/fork-linux/discord/frozen/error-contract.mjs!",
+  "scripts/fork-linux/discord/public-sdk-entry.mjs!",
+  // The MSAL proof driver launches this isolated consumer scenario by path.
+  "scripts/fork-linux/msal/scenario.mjs!",
+  // npm's consumer proof launches the body worker and preloads its observer through NODE_OPTIONS.
+  "scripts/fork-linux/npm/body-worker.cjs!",
+  "scripts/fork-linux/npm/observe.cjs!",
   // tsdown builds this private macOS app worker protocol entry by path.
   "src/node-host/mac-worker-entry.ts!",
   // CI imports this selector from its trusted harness inside an inline Node script.

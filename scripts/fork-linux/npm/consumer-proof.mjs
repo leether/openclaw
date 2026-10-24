@@ -97,8 +97,12 @@ export async function isolatedEnvironment(root, runtime) {
   for (const child of ["home", "cache", "tmp"]) {
     await fs.mkdir(path.join(root, child));
   }
-  const config = path.join(root, "empty.npmrc");
-  await fs.writeFile(config, "", { flag: "wx" });
+  // npm rejects loading one physical path as both user and global config.
+  // Keep both layers private and empty without aliasing their source identity.
+  const userConfig = path.join(root, "user.npmrc");
+  const globalConfig = path.join(root, "global.npmrc");
+  await fs.writeFile(userConfig, "", { flag: "wx" });
+  await fs.writeFile(globalConfig, "", { flag: "wx" });
   return {
     HOME: path.join(root, "home"),
     TMPDIR: path.join(root, "tmp"),
@@ -106,10 +110,13 @@ export async function isolatedEnvironment(root, runtime) {
     LANG: "C",
     TZ: "UTC",
     npm_config_cache: path.join(root, "cache"),
-    npm_config_userconfig: config,
-    npm_config_globalconfig: config,
+    npm_config_userconfig: userConfig,
+    npm_config_globalconfig: globalConfig,
     npm_config_registry: "http://127.0.0.1:9",
     npm_config_offline: "true",
+    // npm's asynchronous notifier uses cache:false even in offline mode.
+    // This synthetic boundary exercises node-gyp, not registry update checks.
+    npm_config_update_notifier: "false",
   };
 }
 
@@ -221,15 +228,15 @@ export async function runConsumerCase(
     if (name === "environment-proxy") {
       env.HTTP_PROXY = fixture.proxy;
     }
-    if (name === "no-proxy") {
-      proxyArgs.push("--noproxy=127.0.0.1");
-    }
     const cliArgs = [
       consumers.npmCli,
       "--offline",
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",
+      // node-gyp imports npm_config_* after argv. Set npm's own value so
+      // its exported empty default cannot override the requested bypass.
+      ...(name === "no-proxy" ? ["--noproxy=127.0.0.1"] : []),
       "run",
       "gyp-proof",
       "--",
@@ -329,6 +336,7 @@ export async function runConsumerCase(
     receipt.transport = fixture.counts;
     receipt.passed = true;
   } catch (error) {
+    receipt.transport = fixture.counts;
     receipt.error = error instanceof Error ? error.message.slice(0, 8192) : "consumer proof failed";
     if (error && typeof error === "object" && error.receipt) {
       receipt.failedCommand = error.receipt;

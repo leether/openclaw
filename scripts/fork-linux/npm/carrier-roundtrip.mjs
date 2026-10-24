@@ -13,6 +13,7 @@ import {
   resolveConsumers,
   runConsumerCase,
 } from "./consumer-proof.mjs";
+import { deriveNpmBinLinkInventory, NPM_BIN_LINK_CONTRACT } from "./installed-bin-links.mjs";
 import { managedCommand } from "./managed.mjs";
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -25,11 +26,17 @@ async function boundedArchive(filename) {
   return bytes;
 }
 
-// Only compare regular package payload files. Installation metadata outside this
-// package root is not part of either official or derived package inventory.
+// Keep the tarball's regular payload inventory separate from the exact bin
+// links npm creates inside its bundled node_modules during normal installation.
 export async function verifyInstalledPayload(root, expected) {
+  const rootStat = await fs.lstat(root);
+  assert.ok(rootStat.isDirectory() && !rootStat.isSymbolicLink(), "invalid npm payload root");
+  const realRoot = await fs.realpath(root);
+  const binLinks = deriveNpmBinLinkInventory(expected);
+  const wantedLinks = new Map(binLinks.links.map((link) => [link.path, link.target]));
   const pending = [""];
   const actual = [];
+  const actualLinks = [];
   let bytes = 0;
   let entries = 0;
   while (pending.length) {
@@ -40,7 +47,17 @@ export async function verifyInstalledPayload(root, expected) {
       const name = relative ? `${relative}/${item.name}` : item.name;
       const filename = path.join(root, name);
       const stat = await fs.lstat(filename);
-      assert.equal(stat.isSymbolicLink(), false, "unexpected link in npm payload");
+      if (stat.isSymbolicLink()) {
+        const target = wantedLinks.get(name);
+        assert.ok(target, "unexpected link in npm payload");
+        assert.equal(await fs.readlink(filename), target, "installed npm bin target differs");
+        const targetName = path.posix.normalize(path.posix.join(path.posix.dirname(name), target));
+        const targetPath = path.join(realRoot, targetName);
+        assert.equal(await fs.realpath(filename), targetPath, "installed npm bin target escaped");
+        assert.ok((await fs.lstat(targetPath)).isFile(), "installed npm bin target is not regular");
+        actualLinks.push({ path: name, target });
+        continue;
+      }
       if (stat.isDirectory()) {
         pending.push(name);
         continue;
@@ -68,7 +85,14 @@ export async function verifyInstalledPayload(root, expected) {
   actual.sort(order);
   wanted.sort(order);
   assert.deepEqual(actual, wanted, "installed npm payload differs from verified archive");
-  return { files: actual.length, bytes, treeSha256: digest(Buffer.from(JSON.stringify(actual))) };
+  actualLinks.sort(order);
+  assert.deepEqual(actualLinks, binLinks.links, "installed npm bin link set differs");
+  return {
+    files: actual.length,
+    bytes,
+    treeSha256: digest(Buffer.from(JSON.stringify(actual))),
+    binLinks,
+  };
 }
 
 // Authenticate once before any installed CLI can run. Retain the verified bytes
@@ -81,12 +105,17 @@ export async function authenticateCarrierInputs(archives) {
   }
   const [npmTarball, undiciTarball, derivedTarball] = buffers;
   const authority = verifyBundledNpmArtifact({ npmTarball, undiciTarball, derivedTarball });
+  const officialFiles = readBundledNpmPackageArchive(npmTarball);
+  const derivedFiles = readBundledNpmPackageArchive(derivedTarball);
+  for (const files of [officialFiles, derivedFiles]) {
+    assert.deepEqual(deriveNpmBinLinkInventory(files), NPM_BIN_LINK_CONTRACT);
+  }
   return {
     npmTarball,
     derivedTarball,
     authority,
-    officialFiles: readBundledNpmPackageArchive(npmTarball),
-    derivedFiles: readBundledNpmPackageArchive(derivedTarball),
+    officialFiles,
+    derivedFiles,
     authentication: {
       officialInputs: authority.provenance.officialInputs,
       derivedTreeSha256: authority.provenance.derivedTreeSha256,
@@ -100,6 +129,7 @@ export async function verifyMainNpmPayload(npmRoot, verified) {
   const inventory = await verifyInstalledPayload(npmRoot, verified.derivedFiles);
   assert.equal(inventory.files, BUNDLED_NPM_CONTRACT.derivedFiles);
   assert.equal(inventory.treeSha256, BUNDLED_NPM_CONTRACT.derivedTreeSha256);
+  assert.deepEqual(inventory.binLinks, NPM_BIN_LINK_CONTRACT);
   return inventory;
 }
 
@@ -157,6 +187,7 @@ export async function runCarrierRoundtrip({ verified, installer, runtime, root, 
       path.join(prefix, "node_modules/npm"),
       expected,
     );
+    assert.deepEqual(receipt.inventory.binLinks, NPM_BIN_LINK_CONTRACT);
     const lockBytes = await fs.readFile(path.join(prefix, "package-lock.json"));
     assert.ok(lockBytes.length <= 262144);
     const lock = JSON.parse(lockBytes);

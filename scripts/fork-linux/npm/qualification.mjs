@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { BUNDLED_NPM_CONTRACT } from "../../lib/package-bundled-npm.mts";
 import { CASES } from "./consumer-proof.mjs";
+import { NPM_BIN_LINK_CONTRACT } from "./installed-bin-links.mjs";
 import { TARGET } from "./loopback.mjs";
 import { OWNER_TEST_FILES, LIFECYCLE_TEST_FILE, verifyOwnerTests } from "./owner-test-contract.mjs";
 
@@ -211,6 +212,7 @@ export function assertNpmQualification(proof, version) {
   assert.equal(proof.mainInventory.files, BUNDLED_NPM_CONTRACT.derivedFiles);
   assert.ok(proof.mainInventory.bytes > 0 && proof.mainInventory.bytes <= 16 * 1024 * 1024);
   assert.equal(proof.mainInventory.treeSha256, BUNDLED_NPM_CONTRACT.derivedTreeSha256);
+  assert.deepEqual(proof.mainInventory.binLinks, NPM_BIN_LINK_CONTRACT);
   assert.equal(proof.mainAuthentication.beforeFirstCommand, true);
   assert.deepEqual(
     proof.consumerCases.map((c) => c.name),
@@ -252,6 +254,7 @@ export function assertNpmQualification(proof, version) {
     );
     assert.ok(phase.inventory.bytes > 0 && phase.inventory.bytes <= 16 * 1024 * 1024);
     sha256(phase.inventory.treeSha256);
+    assert.deepEqual(phase.inventory.binLinks, NPM_BIN_LINK_CONTRACT);
     sha256(phase.lock.sha256);
     assert.ok(phase.lock.bytes > 0 && phase.lock.bytes <= 262144);
     assert.equal(phase.lock.lockfileVersion, 3);

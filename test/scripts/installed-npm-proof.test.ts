@@ -15,6 +15,10 @@ import {
 } from "../../scripts/fork-linux/npm/carrier-roundtrip.mjs";
 import { CASES, validateEvents, within } from "../../scripts/fork-linux/npm/consumer-proof.mjs";
 import {
+  deriveNpmBinLinkInventory,
+  NPM_BIN_LINK_CONTRACT,
+} from "../../scripts/fork-linux/npm/installed-bin-links.mjs";
+import {
   proxyTargetAllowed,
   startFixture,
   syntheticHeaders,
@@ -348,6 +352,155 @@ test("main payload comparison covers an unlisted Undici implementation and file 
     await assert.rejects(verifyMainNpmPayload(root, { derivedFiles: entries }));
   }));
 
+function binPayload() {
+  return NPM_BIN_LINK_CONTRACT.links.flatMap((link) => {
+    const target = path.posix.normalize(
+      path.posix.join(path.posix.dirname(link.path), link.target),
+    );
+    const packageRoot = target.slice(0, target.indexOf("/bin/"));
+    const name = packageRoot.slice("node_modules/".length);
+    const bin = "./" + target.slice(packageRoot.length + 1);
+    return [
+      {
+        path: packageRoot + "/package.json",
+        mode: 0o644,
+        content: Buffer.from(
+          JSON.stringify({
+            name,
+            bin: ["cssesc", "node-gyp"].includes(name)
+              ? bin
+              : { [path.posix.basename(link.path)]: bin },
+          }),
+        ),
+      },
+      { path: target, mode: 0o755, content: Buffer.from("synthetic executable\n") },
+    ];
+  });
+}
+async function writeBinPayload(root: string) {
+  const files = binPayload();
+  for (const file of files) {
+    const filename = path.join(root, file.path);
+    await fs.mkdir(path.dirname(filename), { recursive: true });
+    await fs.writeFile(filename, file.content, { mode: file.mode });
+  }
+  await fs.mkdir(path.join(root, "node_modules/.bin"));
+  for (const link of NPM_BIN_LINK_CONTRACT.links) {
+    await fs.symlink(link.target, path.join(root, link.path));
+  }
+  return files;
+}
+test("normal npm bundled bins have a separate exact installation inventory", () =>
+  temporary(async (root) => {
+    const expected = await writeBinPayload(root);
+    assert.deepEqual(deriveNpmBinLinkInventory(expected), NPM_BIN_LINK_CONTRACT);
+    const actual = await verifyInstalledPayload(root, expected);
+    assert.equal(actual.files, expected.length);
+    assert.deepEqual(actual.binLinks, NPM_BIN_LINK_CONTRACT);
+  }));
+
+for (const fault of [
+  "missing",
+  "extra",
+  "wrong-target",
+  "absolute",
+  "escape",
+  "directory",
+  "dangling",
+  "relative-alias",
+  "target-link",
+  "target-bytes",
+  "target-mode",
+  "bin-directory-link",
+] as const) {
+  test(`bundled bin verification rejects ${fault} without changing the payload authority`, () =>
+    temporary(async (root) => {
+      const expected = await writeBinPayload(root);
+      const link = path.join(root, "node_modules/.bin/node-gyp");
+      const target = path.join(root, "node_modules/node-gyp/bin/node-gyp.js");
+      if (fault === "extra") {
+        await fs.symlink("../node-gyp/bin/node-gyp.js", path.join(root, "node_modules/.bin/extra"));
+      } else if (fault === "directory" || fault === "dangling") {
+        await fs.unlink(target);
+        if (fault === "directory") {
+          await fs.mkdir(target);
+        }
+      } else if (fault === "target-link") {
+        await fs.unlink(target);
+        await fs.symlink("../../nopt/bin/nopt.js", target);
+      } else if (fault === "target-bytes") {
+        await fs.writeFile(target, "changed\n");
+      } else if (fault === "target-mode") {
+        await fs.chmod(target, 0o644);
+      } else if (fault === "bin-directory-link") {
+        await fs.rename(path.join(root, "node_modules/.bin"), path.join(root, "renamed-bins"));
+        await fs.symlink("../renamed-bins", path.join(root, "node_modules/.bin"));
+      } else {
+        await fs.unlink(link);
+        if (fault !== "missing") {
+          await fs.symlink(
+            fault === "absolute"
+              ? target
+              : fault === "escape"
+                ? "../../../outside"
+                : fault === "relative-alias"
+                  ? "../node-gyp/bin/./node-gyp.js"
+                  : "../nopt/bin/nopt.js",
+            link,
+          );
+        }
+      }
+      await assert.rejects(verifyInstalledPayload(root, expected));
+    }));
+}
+test("archive-derived bins reject unsafe or unbacked targets and conflicting names", () => {
+  const files = binPayload();
+  const manifest = files[0];
+  assert.ok(manifest);
+  const original = JSON.parse(manifest.content.toString());
+  for (const target of [
+    "../outside",
+    "/outside",
+    "bin/../../outside",
+    "bin/missing",
+    "bin\\outside",
+  ]) {
+    const changed = {
+      ...manifest,
+      content: Buffer.from(JSON.stringify({ ...original, bin: { arborist: target } })),
+    };
+    assert.throws(() => deriveNpmBinLinkInventory([changed, ...files.slice(1)]));
+  }
+  const conflicting = files.map((file) =>
+    file.path === "node_modules/nopt/package.json"
+      ? {
+          path: file.path,
+          mode: file.mode,
+          content: Buffer.from(JSON.stringify({ name: "nopt", bin: { arborist: "bin/nopt.js" } })),
+        }
+      : file,
+  );
+  assert.throws(() => deriveNpmBinLinkInventory(conflicting), /conflicting bundled bin/);
+});
+test("npm's own prefix bins do not become links inside its package root", () => {
+  assert.deepEqual(
+    deriveNpmBinLinkInventory([
+      ...binPayload(),
+      {
+        path: "package.json",
+        mode: 0o644,
+        content: Buffer.from(
+          JSON.stringify({
+            name: "npm",
+            bin: { npm: "bin/npm-cli.js", npx: "bin/npx-cli.js" },
+          }),
+        ),
+      },
+    ]),
+    NPM_BIN_LINK_CONTRACT,
+  );
+});
+
 test("formal carrier authentication refuses non-official bytes before returning any input", () =>
   temporary(async (root) => {
     const archives = ["npm.tgz", "undici.tgz", "derived.tgz"].map((p) => path.join(root, p));
@@ -547,10 +700,25 @@ function qualifyingReport(version = "24.22.1") {
       headerSha256: { "include/node/fixture.gypi": digest, "include/node/fixture.h": digest },
     };
   }
-  const mainInventory: { files: number; bytes: number; treeSha256: string } = {
+  const binLinks = (): {
+    version: string;
+    count: number;
+    sha256: string;
+    links: Array<{ path: string; target: string }>;
+  } => ({
+    ...NPM_BIN_LINK_CONTRACT,
+    links: NPM_BIN_LINK_CONTRACT.links.map((link) => ({ path: link.path, target: link.target })),
+  });
+  const mainInventory: {
+    files: number;
+    bytes: number;
+    treeSha256: string;
+    binLinks: ReturnType<typeof binLinks>;
+  } = {
     files: BUNDLED_NPM_CONTRACT.derivedFiles,
     bytes: 1,
     treeSha256: BUNDLED_NPM_CONTRACT.derivedTreeSha256,
+    binLinks: binLinks(),
   };
   return {
     protocol: "npm-node-gyp-consumer-v1",
@@ -605,6 +773,7 @@ function qualifyingReport(version = "24.22.1") {
             index === 1 ? BUNDLED_NPM_CONTRACT.derivedFiles : BUNDLED_NPM_CONTRACT.originalFiles,
           bytes: 1,
           treeSha256: index === 1 ? BUNDLED_NPM_CONTRACT.derivedTreeSha256 : digest,
+          binLinks: binLinks(),
         },
         lock: {
           sha256: digest,
@@ -724,6 +893,43 @@ test("main inventory must exactly join the derived carrier inventory", () => {
   proof.mainInventory.bytes += 1;
   assert.throws(() => assertNpmQualification(proof, "24.22.1"));
 });
+for (const fault of ["missing", "extra", "target", "count", "hash"] as const) {
+  test(`four equally drifted ${fault} bin inventories cannot replace fixed authority`, async () => {
+    await assert.rejects(
+      collectNpmQualification(
+        async (name: string) => {
+          if (!name.includes("-npm-proof-")) {
+            return qualifyingArtifact(name);
+          }
+          const proof = qualifyingReport(name.includes("24.22.1") ? "24.22.1" : "24.22.0");
+          for (const inventory of [
+            proof.mainInventory,
+            ...proof.carrierRoundtrip.phases.map((phase) => phase.inventory),
+          ]) {
+            if (fault === "missing") {
+              inventory.binLinks.links.pop();
+            } else if (fault === "extra") {
+              inventory.binLinks.links.push({
+                path: "node_modules/.bin/extra",
+                target: "../nopt/bin/nopt.js",
+              });
+            } else if (fault === "target") {
+              const link = inventory.binLinks.links[0];
+              assert.ok(link);
+              link.target = "../nopt/bin/nopt.js";
+            } else if (fault === "count") {
+              inventory.binLinks.count = 8;
+            } else {
+              inventory.binLinks.sha256 = "c".repeat(64);
+            }
+          }
+          return proof;
+        },
+        async () => "a".repeat(64),
+      ),
+    );
+  });
+}
 test("owner reports cannot omit a selected file or its assertions", () => {
   const missing = ownerReport(OWNER_TEST_FILES);
   missing.testResults.pop();

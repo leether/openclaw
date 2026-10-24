@@ -32,7 +32,9 @@ consumer cases are:
    then performs no new request.
 2. Explicit proxy uses a real CONNECT tunnel to the exact loopback origin.
 3. HTTP_PROXY uses that same real proxy path.
-4. `--noproxy=127.0.0.1` bypasses the proxy.
+4. npm-level `--noproxy=127.0.0.1` reaches node-gyp through npm's exported
+   config and bypasses the proxy. A node-gyp-only argument can be overwritten
+   by npm's exported empty default; that failed fixture is not a passing proof.
 5. Wrong SHASUMS fails with node-gyp's actual checksum error and rolls back the
    installed version and temporary extraction directory.
 6. Cancellation before response headers joins the owned npm process group.
@@ -66,6 +68,11 @@ cleanup can destroy owned sockets after failure; a passing proof requires zero
 open sockets before cleanup, so cleanup cannot manufacture the success signal.
 The observer emits only synthetic route metadata, package hashes and process
 identities. Child environments do not inherit tokens or proxy credentials.
+User and global npm config use two distinct private empty files; npm rejects
+loading one path for both layers. The synthetic environment disables npm's
+asynchronous update notifier, which otherwise uses `cache:false` and can make
+a registry request despite `--offline`. Builtin/project config loading remains
+npm's normal behavior; fixture projects and their state stay in private roots.
 
 ## Artifact and rollback binding
 
@@ -81,6 +88,19 @@ inventory against its verified input archive, verifies the actual package-lock
 identity and bundled node-gyp/Undici entries, and executes the real direct/ensure
 consumer. Final official payload and lock hashes must equal the initial stage.
 All inputs, intermediate state and failed output are retained.
+
+Normal npm installation creates nine bundled dependency links inside
+`node_modules/npm/node_modules/.bin`, even with `--ignore-scripts`. The archive
+authenticator still rejects all tarball links. The installed verifier derives
+these nine link names and exact relative targets from the authenticated archive
+manifests, then requires the fixed `npm-installed-bin-links-v1` contract. It
+checks the complete link set, each `readlink` value and its real, regular target;
+the target remains covered by the unchanged full payload byte/mode/hash check.
+Missing, extra, escaping, directory or forged-target links refuse. Link metadata
+is reported separately as `inventory.binLinks`, so it does not alter the fixed
+regular payload tree digest. Main, official, derived and rollback installations,
+and all four qualification cells, must meet the same fixed nine-link contract;
+cross-cell agreement alone cannot authorize another link set.
 
 `collectNpmQualification(read, hashFile)` in `qualification.mjs` validates the
 four required Node/install/restore reports, their fixed main inventories, archive
