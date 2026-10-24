@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { verifySandboxStatus } from "./canvas-sandbox.mjs";
 import { fixtureSourceCallId } from "./installed-model-fixture.mjs";
 import { verifyOwnerTests } from "./npm/owner-test-contract.mjs";
 import { collectNpmQualification } from "./npm/qualification.mjs";
@@ -139,6 +140,37 @@ for (const version of ["24.22.1", "24.22.0"]) {
     reports[version] = proof.assertions;
   }
 }
+verifyOwnerTests(await read("canvas-sandbox-owner-tests.json"), [
+  "test/scripts/fork-linux-canvas-proof.test.ts",
+]);
+const sandboxAdmission = await read("canvas-sandbox-admission.json");
+const sandboxRetirement = await read("canvas-sandbox-retirement.json");
+assert.equal(sandboxRetirement.passed, true);
+assert.equal(sandboxRetirement.profile, sandboxAdmission.profile);
+assert.deepEqual(sandboxRetirement.executable, sandboxAdmission.executable);
+for (const key of ["processesAbsentBeforeUnload", "profileAbsent", "globalPolicyUnchanged"]) {
+  assert.equal(sandboxRetirement[key], true);
+}
+for (const name of ["canvas-sandbox-preflight/report.json", "canvas-browser/report.json"]) {
+  const proof = await read(name);
+  assert.equal(proof.passed, true);
+  assert.equal(proof.sandbox.passed, true);
+  verifySandboxStatus(proof.sandbox.chromiumStatus);
+  assert.equal(proof.sandbox.policySha256, sandboxAdmission.policySha256);
+  assert.deepEqual(proof.sandbox.executable, sandboxAdmission.executable);
+  assert.equal(proof.containment.empty, true);
+  assert.equal(proof.cleanup.processTreeVerifiedEmpty, true);
+  if (name === "canvas-browser/report.json") {
+    assert.equal(proof.results.length, 4);
+    for (const row of proof.results) {
+      assert.ok(row.sandboxRenderers.length > 0);
+      for (const renderer of row.sandboxRenderers) {
+        assert.equal(renderer.seccomp, 2);
+        assert.equal(renderer.noNewPrivs, 1);
+      }
+    }
+  }
+}
 const files = {};
 const undici = await collectUndiciQualification(read);
 const msal = await collectMsalQualification(read, hashFile);
@@ -184,6 +216,10 @@ for (const name of [
   "canvas-capture.json",
   "discord-capture.json",
   "canvas-browser/report.json",
+  "canvas-sandbox-preflight/report.json",
+  "canvas-sandbox-admission.json",
+  "canvas-sandbox-owner-tests.json",
+  "canvas-sandbox-retirement.json",
   ...["installed", "restored"].flatMap((prefix) =>
     ["24.22.1", "24.22.0"].flatMap((version) =>
       ["canvas", "discord", "undici", "msteams"].map(
@@ -222,6 +258,7 @@ const report = {
     "source frozen pnpm lock; standalone npm resolution captured in installed-package-lock.json and installed-dependencies.json",
   installedProductionAudit: installedAudit.metadata.vulnerabilities,
   migratedConsumers: consumers,
+  canvasSandbox: { admission: sandboxAdmission, retirement: sandboxRetirement },
   undici,
   msal,
   npm,

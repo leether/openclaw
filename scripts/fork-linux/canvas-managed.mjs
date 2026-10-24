@@ -156,7 +156,8 @@ export async function runBrowserWorker(values, nonce, callback) {
   );
   return report;
 }
-export async function runManagedBrowser(values, script) {
+export async function runManagedBrowser(values, script, mode = "browser") {
+  assert.ok(["browser", "sandbox"].includes(mode));
   const begin = performance.now();
   const sourceArg = values[2];
   const proofDir = values[4];
@@ -185,7 +186,13 @@ export async function runManagedBrowser(values, script) {
     assert.ok(performance.now() - begin < 2000, "Browser owner preparation exceeded 2s");
     const code = await runManagedCommand({
       bin: process.execPath,
-      args: ["--max-old-space-size=512", script, "__browser_worker", ...values, nonce],
+      args: [
+        "--max-old-space-size=512",
+        script,
+        mode === "browser" ? "__browser_worker" : "__sandbox_worker",
+        ...values,
+        nonce,
+      ],
       cwd: source,
       env: { ...process.env, NODE_OPTIONS: "--max-old-space-size=512" },
       memoryLimitBytes: LIMIT,

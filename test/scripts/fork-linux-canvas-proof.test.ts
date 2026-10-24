@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +19,10 @@ import {
   verifyFiles,
   exerciseRegisteredPlugin,
 } from "../../scripts/fork-linux/canvas-runtime.mjs";
+import {
+  verifySandboxStatus,
+  parseRendererStatus,
+} from "../../scripts/fork-linux/canvas-sandbox.mjs";
 
 function fixture(fn: (root: string) => unknown) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "canvas-proof-pure-")));
@@ -91,12 +96,13 @@ const kernelChanges: Array<[string, Partial<typeof kernel>]> = [
   ["limit-hit", { events: { max: 1, oom: 0, oom_kill: 0 } }],
   ["oom", { events: { max: 0, oom: 1, oom_kill: 1 } }],
 ];
-for (const [name, change] of kernelChanges)
+for (const [name, change] of kernelChanges) {
   test(`kernel ${name} cannot qualify`, () => {
     assert.throws(() =>
       verifyKernelReceipts(kernel, { ...structuredClone(kernel), ...change }, unit),
     );
   });
+}
 
 test("optional group OOM counter must remain zero and present consistently", () => {
   const withGroup = { ...structuredClone(kernel), events: { ...kernel.events, oom_group_kill: 0 } };
@@ -110,7 +116,7 @@ test("optional group OOM counter must remain zero and present consistently", () 
   );
   assert.throws(() => verifyKernelReceipts(withGroup, kernel, unit));
 });
-for (const status of [0, 1])
+for (const status of [0, 1]) {
   test(`not-found scope accepts only complete inactive receipt (exit ${status})`, () => {
     assert.equal(
       parseScopeState({
@@ -120,6 +126,7 @@ for (const status of [0, 1])
       "not-found",
     );
   });
+}
 test("systemctl timeout, abnormal status, missing or conflicting fields cannot qualify", () => {
   const stdout = "LoadState=not-found\nActiveState=inactive\nControlGroup=\n";
   for (const change of [
@@ -131,8 +138,9 @@ test("systemctl timeout, abnormal status, missing or conflicting fields cannot q
     { stdout: stdout.replace("inactive", "active") },
     { stdout: stdout.replace("ControlGroup=", "ControlGroup=/other") },
     { status: 1, stdout: "LoadState=loaded\nActiveState=inactive\nControlGroup=/owned\n" },
-  ])
+  ]) {
     assert.throws(() => parseScopeState({ status: 0, stdout, ...change }));
+  }
   assert.equal(
     parseScopeState({
       status: 0,
@@ -159,4 +167,62 @@ test("combined browser output cap remains a failure after admission and last pas
   report.passed = true;
   finalizeBrowserOutput(report, budget);
   assert.equal(report.passed, false);
+});
+
+const sandboxStatus = {
+  suid: false,
+  userNs: true,
+  pidNs: true,
+  netNs: true,
+  seccompBpf: true,
+  seccompTsync: true,
+  sandboxGood: true,
+};
+test("actual Chromium namespace and seccomp status must all be positive", () => {
+  verifySandboxStatus(sandboxStatus);
+  for (const key of Object.keys(sandboxStatus)) {
+    assert.throws(() =>
+      verifySandboxStatus({
+        ...sandboxStatus,
+        [key]: !sandboxStatus[key as keyof typeof sandboxStatus],
+      }),
+    );
+    const missing = { ...sandboxStatus };
+    delete (missing as Record<string, unknown>)[key];
+    assert.throws(() => verifySandboxStatus(missing));
+  }
+});
+test("actual renderer requires seccomp filtering and no-new-privileges", () => {
+  assert.deepEqual(parseRendererStatus("Name:\trenderer\nSeccomp:\t2\nNoNewPrivs:\t1\n"), {
+    seccomp: 2,
+    noNewPrivs: 1,
+  });
+  for (const text of [
+    "",
+    "Seccomp: 2",
+    "Seccomp: 0\nNoNewPrivs: 1",
+    "Seccomp: 2\nNoNewPrivs: 0",
+    "Seccomp: 2\nSeccomp: 2\nNoNewPrivs: 1",
+  ]) {
+    assert.throws(() => parseRendererStatus(text));
+  }
+});
+test("privileged prerequisite owner keeps failure, cancellation and repeat cleanup safe", () => {
+  const result = execFileSync(
+    "python3",
+    ["test/scripts/fixtures/canvas-sandbox-owner.py", "scripts/fork-linux/canvas-sandbox.py"],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 10000,
+      maxBuffer: 65536,
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    },
+  );
+  assert.deepEqual(JSON.parse(result.trim().split("\n").at(-1)!), {
+    passed: true,
+    tests: 15,
+    failures: 0,
+    errors: 0,
+  });
 });

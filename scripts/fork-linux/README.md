@@ -38,6 +38,38 @@ The repository's managed Playwright Chromium owner prepares the browser inside
 the existing resource/time budget. Installed/restored v0.8 and v0.9 assets must
 match the frozen build and pass all four actual-browser cases offline.
 
+On Ubuntu 24.04, a downloaded Chromium may be refused user namespaces by
+AppArmor. This qualification uses Chromium's documented exact-path `userns`
+permission, with a unique root-owned receipt and policy; it does not change the
+global sysctl, disable the browser sandbox, substitute a browser, or install a
+setuid helper. Only the prepared UI Playwright executable is eligible. The
+policy helper is specific to an exclusive, secretless, disposable GitHub-hosted
+job. That runner owns the browser cache: inode/hash checks and a held file
+descriptor bind the actual launch, but are not protection from a concurrent
+privileged or same-UID writer.
+
+A small real browser prerequisite runs before the full build. It and the final
+four-case proof require Chromium's actual namespace/PID/network/seccomp status,
+the exact live AppArmor label/executable, and real renderer `Seccomp=2` and
+`NoNewPrivs=1` in the worker cgroup. Each final Canvas page also checks renderer
+state. Both retain the existing 1 GiB/no-swap, 20-second worker and 60-second
+outer deadline, managed process-tree join, and loopback-only OS namespace. The
+prerequisite does not count as an installed Canvas consumer pass.
+
+On success, error, timeout or interruption, profile retirement first checks the
+unchanged executable and global setting, then inventories the runner's processes
+for the exact policy/executable. Any live/unknown process, partial load, failed
+unload or drift preserves the root-owned recovery files and fails qualification.
+The workflow's failure reconciliation uses the same idempotent owner; it never
+unloads a possibly occupied policy or converts a failed proof to success. The
+unique receipt, early prerequisite, final proof and confirmed retirement are
+required by the final package manifest. Root-owned recovery files remain until
+the disposable runner is destroyed.
+
+See Chromium's [AppArmor userns guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
+The original `No usable sandbox` failure alone does not prove a particular
+kernel AppArmor denial; the new receipts establish the path actually used.
+
 Discord has its own canonical plugin build/pack and a fresh npm installation.
 Its lock, complete dependency graph, high/critical audit, and full runtime
 archive are retained separately from core. Both Node versions exercise the

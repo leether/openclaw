@@ -71,6 +71,18 @@ jobs:
             --property=TasksMax=512 --property=OOMPolicy=kill \
             --property=RuntimeMaxSec=6600 -- \
             bash scripts/fork-linux/qualify-package.sh
+      - name: Reconcile exact Canvas policy after qualification exit
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner_file="$FORK_ARTIFACT_DIR/canvas-sandbox-owner.txt"
+          if [[ -s "$owner_file" ]] && ! node -e 'const fs=require("node:fs"); try { if(JSON.parse(fs.readFileSync(process.argv[1])).passed !== true) process.exit(1); } catch { process.exit(1); }' "$FORK_ARTIFACT_DIR/canvas-sandbox-retirement.json"; then
+            IFS= read -r owner < "$owner_file"
+            python3 scripts/fork-linux/bounded-command.py 20 sudo -n python3 \
+              scripts/fork-linux/canvas-sandbox.py retire "$owner" \
+              > "$FORK_ARTIFACT_DIR/canvas-sandbox-workflow-retirement.json"
+          fi
       - name: Upload qualified package and offline runtime
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -104,6 +116,9 @@ jobs:
             ${{ env.FORK_ARTIFACT_DIR }}/installed-msteams-proof-*.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-undici-proof-*.json
             ${{ env.FORK_ARTIFACT_DIR }}/canvas-browser/*.json
+            ${{ env.FORK_ARTIFACT_DIR }}/canvas-sandbox-*.json
+            ${{ env.FORK_ARTIFACT_DIR }}/canvas-sandbox-owner.txt
+            ${{ env.FORK_ARTIFACT_DIR }}/canvas-sandbox-preflight/*.json
             ${{ env.FORK_ARTIFACT_DIR }}/native-*.json
             ${{ env.FORK_ARTIFACT_DIR }}/installed-http-proof-*.json
             ${{ env.FORK_ARTIFACT_DIR }}/restored-*.json

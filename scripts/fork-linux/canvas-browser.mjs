@@ -6,6 +6,7 @@ import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { openSandboxAuthority, attestSandbox, attestRenderers } from "./canvas-sandbox.mjs";
 export function createBrowserOutputBudget() {
   let bytes = 0,
     limitExceeded = false;
@@ -27,7 +28,13 @@ export function finalizeBrowserOutput(result, budget) {
     result.error ??= "Chromium combined output exceeded 32KiB";
   }
 }
-export async function runBrowserProof({ root, playwrightRoot, bundles, captureSha256 }) {
+export async function runBrowserProof({
+  root,
+  playwrightRoot,
+  bundles,
+  captureSha256,
+  sandboxOnly = false,
+}) {
   const label = "installed-restored-canvas";
   const output = path.join(root, "evidence", label + ".result.json");
   const profile = path.join(root, "state", label);
@@ -59,7 +66,7 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
       "synthetic actual installed/restored Canvas bundle consumers; platform stated explicitly; no general custom-schema or LIVE claim",
   };
   const assets = new Map();
-  for (const lane of ["installed", "restored"]) {
+  for (const lane of sandboxOnly ? [] : ["installed", "restored"]) {
     for (const version of ["v08", "v09"]) {
       const file = bundles[lane][version];
       const bytes = await readFile(file);
@@ -76,7 +83,7 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
   const fixture =
     "globalThis.canvasProofActions=[];globalThis.openclaw={state:{emit:async x=>{globalThis.canvasProofActions.push(x)}}};globalThis.openclawA2UIBoot={actionTier:'state',messages:[]};";
   result.networkBoundary = {
-    chromiumNativeSandboxRetained: true,
+    chromiumNativeSandboxRetained: false,
     outerSeatbelt: false,
     reason:
       "Native browser sandbox plus exact-origin route and WebSocket blocking for reviewed synthetic-only proof; no OS network isolation assertion",
@@ -116,10 +123,11 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const origin = `http://127.0.0.1:${server.address().port}`;
-  let child, browser, closed;
+  let child, browser, closed, sandboxAuthority;
   let stderr = "";
   const outputBudget = createBrowserOutputBudget();
   try {
+    sandboxAuthority = openSandboxAuthority(executable);
     const args = [
       "--headless",
       "--remote-debugging-address=127.0.0.1",
@@ -191,6 +199,8 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
     });
     browser = await chromium.connectOverCDP(ws, { timeout: 8000 });
     result.browserVersion = browser.version();
+    result.sandbox = await attestSandbox(browser, child.pid, sandboxAuthority);
+    result.networkBoundary.chromiumNativeSandboxRetained = true;
     for (const row of result.results) {
       const context = await browser.newContext({
         viewport: { width: 960, height: 700 },
@@ -351,6 +361,7 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
           (x) => x.lane === row.lane && x.version === row.version,
         );
         assert.deepEqual(errors, []);
+        row.sandboxRenderers = await attestRenderers(browser, child.pid);
         row.status = "passed";
       } catch (error) {
         row.status = "failed";
@@ -359,10 +370,10 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
         await context.close();
       }
     }
-    assert.equal(result.results.filter((x) => x.status === "passed").length, 4);
+    assert.equal(result.results.filter((x) => x.status === "passed").length, sandboxOnly ? 0 : 4);
     assert.deepEqual(result.externalRequestsBlocked, []);
     assert.deepEqual(result.webSocketsBlocked, []);
-    assert.equal(result.requests.length, 12);
+    assert.equal(result.requests.length, sandboxOnly ? 0 : 12);
     assert.ok(result.requests.every((r) => r.method === "GET"));
     result.passed = true;
   } catch (error) {
@@ -405,6 +416,7 @@ export async function runBrowserProof({ root, playwrightRoot, bundles, captureSh
         }
       }
     }
+    sandboxAuthority?.close();
     server.closeAllConnections();
     await new Promise((resolve) => {
       server.close(resolve);

@@ -29,6 +29,10 @@ export OPENCLAW_NPM_BUNDLE_OFFICIAL_FIXTURE_DIR="$npm_derivation"
   test/scripts/generate-npm-package-lock.test.ts test/scripts/installed-npm-proof.test.ts \
   test/scripts/check-openclaw-package-tarball.test.ts \
   --reporter=json --outputFile="$FORK_ARTIFACT_DIR/npm-owner-tests.json"
+"${guard[@]}" 120 node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.tooling.config.ts --maxWorkers=1 \
+  test/scripts/fork-linux-canvas-proof.test.ts \
+  --reporter=json --outputFile="$FORK_ARTIFACT_DIR/canvas-sandbox-owner-tests.json"
 "${guard[@]}" 600 node scripts/run-vitest.mjs run \
   --config test/vitest/vitest.tooling.config.ts --maxWorkers=1 \
   test/openclaw-prepack.test.ts \
@@ -45,6 +49,61 @@ cp "$npm_derivation/provenance.json" "$FORK_ARTIFACT_DIR/npm-derivation-provenan
 # preparation failure is a failed prerequisite, not an installed-browser pass.
 "${guard[@]}" 900 node --import ./scripts/tsx.mjs \
   scripts/ensure-playwright-chromium.mts --require-playwright-chromium
+# sudo resets session-bus discovery. Bind the runner's actual owned socket
+# before carrying only that identity into each loopback-only namespace.
+runner_uid="$(id -u)"
+runner_runtime="/run/user/$runner_uid"
+python3 - "$runner_runtime" "$runner_uid" <<'PYBUS'
+import os, stat, sys
+root, uid = sys.argv[1], int(sys.argv[2])
+assert os.path.realpath(root) == root
+assert stat.S_ISDIR(os.lstat(root).st_mode) and os.lstat(root).st_uid == uid
+bus = os.lstat(root + '/bus')
+assert stat.S_ISSOCK(bus.st_mode) and bus.st_uid == uid
+PYBUS
+env XDG_RUNTIME_DIR="$runner_runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=$runner_runtime/bus" \
+  systemctl --user show --property=Version --value >/dev/null
+
+offline() {
+  # Each proof gets a fresh network namespace with only loopback available.
+  "${guard[@]}" "$1" sudo -n unshare --net -- bash -c \
+    'ip link set lo up; exec runuser -u "$1" -- "${@:2}"' _ "$(id -un)" env XDG_RUNTIME_DIR="$runner_runtime" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=$runner_runtime/bus" "${@:2}"
+}
+# The downloaded Chromium needs one exact-path userns permission on Ubuntu 24.04.
+# This only runs on a disposable hosted job, with no concurrent untrusted writer.
+test "${GITHUB_ACTIONS:-}" = true
+test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+sandbox_owner_file="$FORK_ARTIFACT_DIR/canvas-sandbox-owner.txt"
+retire_canvas_policy() {
+  local owner
+  if [[ -s "$sandbox_owner_file" ]]; then
+    IFS= read -r owner < "$sandbox_owner_file"
+    "${guard[@]}" 20 sudo -n python3 "$source_root/scripts/fork-linux/canvas-sandbox.py" \
+      retire "$owner" > "$FORK_ARTIFACT_DIR/canvas-sandbox-retirement.json"
+  fi
+}
+cleanup_canvas_policy() {
+  local status=$?
+  trap - EXIT INT TERM
+  retire_canvas_policy || status=1
+  exit "$status"
+}
+trap cleanup_canvas_policy EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+chromium_executable="$(node --input-type=module -e \
+  'import {createRequire} from "node:module"; import path from "node:path"; console.log(createRequire(path.join(process.cwd(),"ui/package.json"))("playwright").chromium.executablePath());')"
+"${guard[@]}" 30 sudo -n python3 "$source_root/scripts/fork-linux/canvas-sandbox.py" \
+  prepare "$chromium_executable" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$sandbox_owner_file"
+IFS= read -r CANVAS_SANDBOX_OWNER < "$sandbox_owner_file"
+export CANVAS_SANDBOX_OWNER
+cp "$CANVAS_SANDBOX_OWNER/receipt.json" "$FORK_ARTIFACT_DIR/canvas-sandbox-admission.json"
+# Fail before the expensive build if real namespace/seccomp startup is unavailable.
+offline 60 env QUALIFICATION_NETWORK_ISOLATED=1 CANVAS_SANDBOX_OWNER="$CANVAS_SANDBOX_OWNER" \
+  NODE_OPTIONS=--max-old-space-size=512 "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node" \
+  "$source_root/scripts/fork-linux/canvas-proof.mjs" sandbox \
+  "$source_root" "$source_root" "$source_root" unused "$FORK_ARTIFACT_DIR/canvas-sandbox-preflight"
 "${guard[@]}" 3600 pnpm build
 "${guard[@]}" 120 node scripts/fork-linux/patched-consumer-contract.mjs \
   "$source_root" "$FORK_ARTIFACT_DIR/patched-source-inputs-after.json"
@@ -119,27 +178,6 @@ cp "$msteams_runtime/package-lock.json" "$FORK_ARTIFACT_DIR/msteams-installed-pa
 "${guard[@]}" 300 npm audit --prefix "$msteams_runtime" --omit=dev --audit-level=high --json \
   > "$FORK_ARTIFACT_DIR/msteams-installed-npm-audit.json"
 
-# sudo resets session-bus discovery. Bind the runner's actual owned socket
-# before carrying only that identity into each loopback-only namespace.
-runner_uid="$(id -u)"
-runner_runtime="/run/user/$runner_uid"
-python3 - "$runner_runtime" "$runner_uid" <<'PYBUS'
-import os, stat, sys
-root, uid = sys.argv[1], int(sys.argv[2])
-assert os.path.realpath(root) == root
-assert stat.S_ISDIR(os.lstat(root).st_mode) and os.lstat(root).st_uid == uid
-bus = os.lstat(root + '/bus')
-assert stat.S_ISSOCK(bus.st_mode) and bus.st_uid == uid
-PYBUS
-env XDG_RUNTIME_DIR="$runner_runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=$runner_runtime/bus" \
-  systemctl --user show --property=Version --value >/dev/null
-
-offline() {
-  # Each proof gets a fresh network namespace with only loopback available.
-  "${guard[@]}" "$1" sudo -n unshare --net -- bash -c \
-    'ip link set lo up; exec runuser -u "$1" -- "${@:2}"' _ "$(id -un)" env XDG_RUNTIME_DIR="$runner_runtime" \
-      DBUS_SESSION_BUS_ADDRESS="unix:path=$runner_runtime/bus" "${@:2}"
-}
 state="$RUNNER_TEMP/fork-native-synthetic"
 for phase in initial candidate rollback; do
   version=24.22.0
@@ -228,10 +266,12 @@ for version in 24.22.1 24.22.0; do
     "$restore/node_modules/openclaw" "$runtime" "$RUNNER_TEMP/fork-restored-http-synthetic-$version" \
     > "$FORK_ARTIFACT_DIR/restored-http-proof-$version.json"
 done
-offline 60 env QUALIFICATION_NETWORK_ISOLATED=1 NODE_OPTIONS=--max-old-space-size=512 \
+offline 60 env QUALIFICATION_NETWORK_ISOLATED=1 CANVAS_SANDBOX_OWNER="$CANVAS_SANDBOX_OWNER" NODE_OPTIONS=--max-old-space-size=512 \
   "$FORK_NODE_ROOT/node-v24.22.1-linux-x64/bin/node" \
   "$source_root/scripts/fork-linux/canvas-proof.mjs" browser \
   "$FORK_RUNTIME_DIR/node_modules/openclaw" "$restore/node_modules/openclaw" \
   "$source_root" "$FORK_ARTIFACT_DIR/canvas-capture.json" "$FORK_ARTIFACT_DIR/canvas-browser"
+retire_canvas_policy
+trap - EXIT INT TERM
 "${guard[@]}" 120 node "$source_root/scripts/fork-linux/package-manifest.mjs"
 (cd "$FORK_ARTIFACT_DIR" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)

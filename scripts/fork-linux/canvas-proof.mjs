@@ -181,6 +181,19 @@ async function runtime(installedRoot, capturePath) {
     ],
   };
 }
+async function sandbox(_installed, _restored, source, _capture, proofDir) {
+  const { runBrowserProof } = await import("./canvas-browser.mjs");
+  const report = await runBrowserProof({
+    root: proofDir,
+    playwrightRoot: rootPath(source),
+    bundles: {},
+    captureSha256: null,
+    sandboxOnly: true,
+  });
+  report.phase = "sandbox-prerequisite";
+  report.assertions = [];
+  return report;
+}
 async function browser(installedRoot, restoredRoot, playwrightRoot, capturePath, proofDir) {
   const installed = rootPath(installedRoot);
   const restored = rootPath(restoredRoot);
@@ -236,8 +249,17 @@ async function browser(installedRoot, restoredRoot, playwrightRoot, capturePath,
 
 export async function main(args) {
   const [phase, ...values] = args;
-  assert.ok(["capture", "runtime", "browser", "__browser_worker"].includes(phase));
-  assert.equal(values.length, { capture: 2, runtime: 3, browser: 5, __browser_worker: 6 }[phase]);
+  assert.ok(
+    ["capture", "runtime", "browser", "sandbox", "__browser_worker", "__sandbox_worker"].includes(
+      phase,
+    ),
+  );
+  assert.equal(
+    values.length,
+    { capture: 2, runtime: 3, browser: 5, sandbox: 5, __browser_worker: 6, __sandbox_worker: 6 }[
+      phase
+    ],
+  );
   assert.equal(process.platform, "linux");
   assert.equal(process.arch, "x64");
   assert.match(
@@ -245,11 +267,15 @@ export async function main(args) {
     /^v24\.22\.[01]$/u,
     "Linux qualifier must use an exact approved Node 24 runtime",
   );
-  if (phase === "browser") {
-    return await runManagedBrowser(values, fileURLToPath(import.meta.url));
+  if (phase === "browser" || phase === "sandbox") {
+    return await runManagedBrowser(values, fileURLToPath(import.meta.url), phase);
   }
-  if (phase === "__browser_worker") {
-    return await runBrowserWorker(values.slice(0, 5), values[5], browser);
+  if (phase === "__browser_worker" || phase === "__sandbox_worker") {
+    return await runBrowserWorker(
+      values.slice(0, 5),
+      values[5],
+      phase === "__browser_worker" ? browser : sandbox,
+    );
   }
   const output = values.at(-1);
   assert.ok(path.isAbsolute(output) && !fs.existsSync(output), "New absolute output path required");
