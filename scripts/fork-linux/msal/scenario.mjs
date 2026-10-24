@@ -1,13 +1,13 @@
 // All credentials/tokens are synthetic. No actual socket or listener is allowed.
 import assert from "node:assert/strict";
 import dns from "node:dns";
-import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import net from "node:net";
 import path from "node:path";
 import tls from "node:tls";
+import { createRuntimeCertificate } from "./certificate.mjs";
 import { inspect, sha } from "./identity.mjs";
 import { createFakeEndpoint, client, tenant } from "./transport.mjs";
 const [root, scenario] = process.argv.slice(2);
@@ -21,6 +21,9 @@ const report = {
   cases: [],
 };
 try {
+  const deadline = process.env.OPENCLAW_MSAL_SCENARIO_DEADLINE_NS;
+  assert.match(deadline ?? "", /^[1-9][0-9]{1,30}$/);
+  const deadlineNs = BigInt(deadline);
   for (const key of Object.keys(process.env))
     if (
       /^(AZURE_|MSI_|IDENTITY_|IMDS_|CLIENT_|TENANT_|CLOUD$|MANAGED_IDENTITY|SERVICE_URL)/.test(key)
@@ -44,11 +47,10 @@ try {
   process.env.IDENTITY_HEADER = "synthetic-not-a-secret";
   const rows = inspect(root);
   const req = createRequire(path.join(root, "package.json"));
-  const certificate = fs.readFileSync(
-    new URL("./fixture/synthetic-cert.pem", import.meta.url),
-    "utf8",
-  );
-  const key = fs.readFileSync(new URL("./fixture/synthetic-key.pem", import.meta.url), "utf8");
+  const generated = scenario.includes("certificate") ? createRuntimeCertificate(deadlineNs) : null;
+  const certificate = generated?.certificate;
+  const key = generated?.privateKey;
+  report.certificateGeneration = generated?.proof ?? null;
   const endpoint = createFakeEndpoint({
     scenario,
     certificate: scenario.includes("certificate") ? certificate : undefined,

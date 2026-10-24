@@ -6,11 +6,17 @@ export async function runBounded(args, cwd, { timeoutMs = 30000, maxBytes = 2621
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 30000);
   assert.ok(Number.isSafeInteger(maxBytes) && maxBytes > 0 && maxBytes <= 262144);
   const start = performance.now();
+  const deadlineNs = process.hrtime.bigint() + BigInt(timeoutMs) * 1000000n;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ["--max-old-space-size=512", ...args], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { PATH: process.env.PATH ?? "", LANG: "C", TZ: "UTC" },
+      env: {
+        PATH: process.env.PATH ?? "",
+        LANG: "C",
+        TZ: "UTC",
+        OPENCLAW_MSAL_SCENARIO_DEADLINE_NS: deadlineNs.toString(),
+      },
     });
     const stdout = [];
     const stderrHash = createHash("sha256");
@@ -20,7 +26,8 @@ export async function runBounded(args, cwd, { timeoutMs = 30000, maxBytes = 2621
       failure ??= reason;
       child.kill("SIGKILL");
     };
-    const timer = setTimeout(() => fail("wall-limit"), timeoutMs);
+    const remainingMs = Number((deadlineNs - process.hrtime.bigint()) / 1000000n);
+    const timer = setTimeout(() => fail("wall-limit"), Math.max(0, remainingMs));
     function collect(data, output) {
       count += data.length;
       if (!output) stderrHash.update(data);

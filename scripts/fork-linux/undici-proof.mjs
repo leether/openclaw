@@ -74,6 +74,8 @@ export async function qualifyUndici(packageRoot) {
     }
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("X-Content-Type-Options", "nosniff");
     res.end(
       JSON.stringify({ path: req.url, method: req.method, body: Buffer.concat(chunks).toString() }),
     );
@@ -87,10 +89,18 @@ export async function qualifyUndici(packageRoot) {
       res.end();
       return;
     }
-    const upstream = http.request(url, { method: req.method }, (response) => {
-      res.writeHead(response.statusCode, response.headers);
-      response.pipe(res);
-    });
+    const upstream = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: target.address().port,
+        path: `${url.pathname}${url.search}`,
+        method: req.method,
+      },
+      (response) => {
+        res.writeHead(response.statusCode, response.headers);
+        response.pipe(res);
+      },
+    );
     upstream.on("socket", tracked);
     upstream.on("error", () => res.destroy());
     req.once("aborted", () => upstream.destroy());
@@ -142,6 +152,8 @@ export async function qualifyUndici(packageRoot) {
       pool.request({ path: "/echo", method: "POST", body: "synthetic" }),
     );
     assert.equal(direct.statusCode, 200);
+    assert.equal(direct.headers["content-type"], "application/json");
+    assert.equal(direct.headers["x-content-type-options"], "nosniff");
     assert.deepEqual(await bounded(direct.body.json()), {
       path: "/echo",
       method: "POST",

@@ -122,7 +122,47 @@ export async function collectMsalQualification(read, hashFile) {
         assert.equal(auth.exchangeTokenHashes.length > 0, federated);
         assert.equal(new Set(auth.exchangeTokenHashes).size, auth.exchangeTokenHashes.length);
         assert.ok(auth.exchangeTokenHashes.every((value) => /^[a-f0-9]{64}$/.test(value)));
-        if (scenario.includes("certificate")) assert.ok(outcome.signatureChecks > 0);
+        if (scenario.includes("certificate")) {
+          assert.ok(outcome.signatureChecks > 0);
+          const generated = outcome.certificateGeneration;
+          assert.equal(generated.generatedAtRuntime, true);
+          assert.equal(generated.keyBits, 2048);
+          assert.ok(
+            Number.isSafeInteger(generated.parentRemainingAtStartMs) &&
+              generated.parentRemainingAtStartMs >= 7000 &&
+              generated.parentRemainingAtStartMs <= 30000,
+          );
+          assert.ok(
+            Number.isSafeInteger(generated.parentRemainingBeforeOpenSslMs) &&
+              generated.parentRemainingBeforeOpenSslMs >= 7000 &&
+              generated.parentRemainingBeforeOpenSslMs <= generated.parentRemainingAtStartMs,
+          );
+          assert.ok(
+            Number.isSafeInteger(generated.keyGenerationMs) &&
+              generated.keyGenerationMs >= 0 &&
+              generated.keyGenerationMs < 20000,
+          );
+          assert.ok(
+            Number.isSafeInteger(generated.totalElapsedMs) &&
+              generated.totalElapsedMs >= generated.keyGenerationMs &&
+              generated.totalElapsedMs < 25000,
+          );
+          assert.equal(generated.privateKeyPersisted, false);
+          assert.equal(generated.pairVerified, true);
+          assert.equal(generated.openssl.exitCode, 0);
+          assert.equal(generated.openssl.signal, null);
+          assert.equal(generated.openssl.closed, true);
+          assert.ok(
+            Number.isSafeInteger(generated.openssl.elapsedMs) &&
+              generated.openssl.elapsedMs >= 0 &&
+              generated.openssl.elapsedMs <= 5000,
+          );
+          assert.ok(
+            Number.isSafeInteger(generated.openssl.outputBytes) &&
+              generated.openssl.outputBytes > 0 &&
+              generated.openssl.outputBytes <= 16384,
+          );
+        } else assert.equal(outcome.certificateGeneration, null);
         assert.equal(outcome.callerCancellation.sourceReleasedAndJoined, true);
         assert.equal(outcome.callerCancellation.beforeRelease.actualEndpointStillOpen, true);
         assert.equal(

@@ -8,6 +8,7 @@ function token(aud) {
   const now = Math.floor(Date.now() / 1000);
   return `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ aud, iss: `https://login.microsoftonline.com/${tenant}/v2.0`, tid: tenant, appid: client, jti: `synthetic-${++tokenSequence}`, iat: now, nbf: now, exp: now + 3600 })}.synthetic-signature`;
 }
+/** @param {{ certificate?: string, scenario: string }} options */
 export function createFakeEndpoint({ certificate = undefined, scenario }) {
   const contract = createAuthContract(scenario);
   const events = [];

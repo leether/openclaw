@@ -68,6 +68,25 @@ function fixture() {
               "transport-abort-rejects-without-success-cache",
             ].map((name) => ({ name, passed: true })),
             signatureChecks: scenario.includes("certificate") ? 2 : 0,
+            certificateGeneration: scenario.includes("certificate")
+              ? {
+                  generatedAtRuntime: true,
+                  keyBits: 2048,
+                  parentRemainingAtStartMs: 29900,
+                  parentRemainingBeforeOpenSslMs: 29890,
+                  keyGenerationMs: 10,
+                  totalElapsedMs: 20,
+                  privateKeyPersisted: false,
+                  pairVerified: true,
+                  openssl: {
+                    exitCode: 0,
+                    signal: null,
+                    closed: true,
+                    elapsedMs: 10,
+                    outputBytes: 1000,
+                  },
+                }
+              : null,
             tokenRequests: scenario === "teams-managed-system" ? 2 : 1,
             authContract: {
               mode:
@@ -135,6 +154,15 @@ describe("actual Teams/MSAL proof aggregation", () => {
     "missing-cell",
     "missing-case",
     "not-signed",
+    "static-key",
+    "wrong-key-size",
+    "missing-parent-deadline",
+    "exhausted-parent-deadline",
+    "persisted-key",
+    "pair-unverified",
+    "openssl-open",
+    "openssl-timeout",
+    "openssl-output",
     "real-outbound",
     "not-joined",
     "server-listen",
@@ -167,6 +195,17 @@ describe("actual Teams/MSAL proof aggregation", () => {
     if (fault === "missing-cell") proof.cells.pop();
     if (fault === "missing-case") child.proof.cases.pop();
     if (fault === "not-signed") child.proof.signatureChecks = 0;
+    const generation = child.proof.certificateGeneration;
+    assert.ok(generation);
+    if (fault === "static-key") generation.generatedAtRuntime = false;
+    if (fault === "wrong-key-size") generation.keyBits = 1024;
+    if (fault === "missing-parent-deadline") generation.parentRemainingAtStartMs = NaN;
+    if (fault === "exhausted-parent-deadline") generation.parentRemainingBeforeOpenSslMs = 6999;
+    if (fault === "persisted-key") generation.privateKeyPersisted = true;
+    if (fault === "pair-unverified") generation.pairVerified = false;
+    if (fault === "openssl-open") generation.openssl.closed = false;
+    if (fault === "openssl-timeout") generation.openssl.elapsedMs = 5001;
+    if (fault === "openssl-output") generation.openssl.outputBytes = 16385;
     if (fault === "real-outbound") child.proof.socketAttempts = 1;
     if (fault === "not-joined") child.proof.callerCancellation.sourceReleasedAndJoined = false;
     if (fault === "server-listen") child.proof.serverListenCalls = 1;
