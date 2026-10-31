@@ -10,8 +10,6 @@ minimumReleaseAgeStrict: true
 
 # Trusted Codex runtimes are outside the dependency cooldown.
 minimumReleaseAgeExclude:
-  # GHSA-27r3-jxmh-p828; remove after 2026-10-29T11:39:38.614Z.
-  - "body-parser@2.4.0"
   # Security fix for GHSA-68fv-2mgg-jv7q (released 2026-09-30); remove after 2026-10-07T14:08:09.382Z.
   - "source-map-js@1.2.2"
   - "@openai/codex"
