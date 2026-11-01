@@ -19,7 +19,7 @@ import {
   resultDetails,
   testing,
 } from "./code-mode.test-support.js";
-import { getActualToolExecutionCount } from "./timer-execution-budget.js";
+import { getActualToolExecutionCount } from "./tool-execution-activity.js";
 import { clearToolSearchCatalog } from "./tool-search.js";
 import { jsonResult, type AnyAgentTool } from "./tools/common.js";
 import {

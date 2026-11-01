@@ -89,6 +89,7 @@ import {
   attachInternalToolExecutionPreparer,
 } from "./runtime/internal-hooks.js";
 import { captureTimerToolExecution } from "./timer-execution-budget.js";
+import { trackExecutionActivity } from "./tool-execution-activity.js";
 import { buildToolMutationState } from "./tool-mutation.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 import {
@@ -462,7 +463,6 @@ export function wrapToolWithBeforeToolCallHook(
         });
         // Hooks can repair or rewrite arguments; only the final execution
         // shape is safe to validate, after vetoes but before side effects.
-        executeParams = timerExecution.normalizeParams(toolName, executeParams);
         await validateToolExecutionParams(toolCallId, executeParams);
         await reconcileLoopCallExecutionParams({
           ctx,
@@ -517,13 +517,15 @@ export function wrapToolWithBeforeToolCallHook(
         try {
           const invoke = () =>
             timerExecution.execute(toolName, signal, (toolSignal) =>
-              liveness.run(() =>
-                (execute as ForwardedToolExecution)(
-                  toolCallId,
-                  executeParams,
-                  toolSignal,
-                  onUpdate,
-                  ...executionArgs,
+              trackExecutionActivity("tools", () =>
+                liveness.run(() =>
+                  (execute as ForwardedToolExecution)(
+                    toolCallId,
+                    executeParams,
+                    toolSignal,
+                    onUpdate,
+                    ...executionArgs,
+                  ),
                 ),
               ),
             );

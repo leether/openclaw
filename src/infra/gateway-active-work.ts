@@ -7,7 +7,7 @@ import { getActiveMediaGenerationRunCount } from "../agents/media-generation-act
 import {
   getActualToolExecutionCount,
   getTimerRequestCount,
-} from "../agents/timer-execution-budget.js";
+} from "../agents/tool-execution-activity.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
 import { getActiveCronJobCount } from "../cron/active-jobs.js";
 import { getSuspensionVisibleCronTaskRunCount } from "../cron/service/active-run-cancellation.js";

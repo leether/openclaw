@@ -4,7 +4,6 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 
 export const TIMER_BUDGET_PROTOCOL = "timer-budget-v1";
-export const TOOL_DRAIN_PROTOCOL = "tool-drain-v1";
 export type TimerExecutionBudgetSpec = {
   version: typeof TIMER_BUDGET_PROTOCOL;
   remainingMs: number;
@@ -24,8 +23,6 @@ type TimerOwner = {
 const state = resolveGlobalSingleton(Symbol.for("openclaw.timerExecutionBudget"), () => ({
   context: new AsyncLocalStorage<TimerOwner>(),
   ownerEpoch: randomUUID(),
-  actualToolExecutions: 0,
-  timerRequests: 0,
 }));
 
 export function getTimerBudgetCapabilities() {
@@ -38,12 +35,6 @@ export function getTimerBudgetCapabilities() {
     searchCallTimeoutMs: 45000,
     scope: "in-process-openclaw" as const,
   };
-}
-export function getActualToolExecutionCount() {
-  return state.actualToolExecutions;
-}
-export function getTimerRequestCount() {
-  return state.timerRequests;
 }
 
 /** The authenticated HTTP owner accepts a bounded dialect, never loose prompt hints. */
@@ -116,14 +107,12 @@ export function createTimerExecutionBudget(
   timer.unref?.();
   return {
     async run<T>(run: () => Promise<T>): Promise<T> {
-      state.timerRequests += 1;
       try {
         return await state.context.run(owner, run);
       } finally {
         owner.active = false;
         clearTimeout(timer);
         controller.abort(new Error("Timer execution scope closed"));
-        state.timerRequests -= 1;
       }
     },
   };
@@ -143,47 +132,11 @@ function assertTimerOwnerRuntimeSupported(owner: TimerOwner | undefined, runtime
   }
 }
 
-function normalizeBaiduFreshness(toolName: string, params: unknown): unknown {
-  if (!new Set(["baidu_search", "baidu_web_search"]).has(toolName) || !isRecord(params)) {
-    return params;
-  }
-  const record = params;
-  if (record.freshness === undefined) {
-    return params;
-  }
-  if (typeof record.freshness !== "string") {
-    throw new Error("Invalid Baidu freshness; use pd, pw, pm, py or YYYY-MM-DDtoYYYY-MM-DD");
-  }
-  const freshness = record.freshness.trim().toLowerCase();
-  const aliases: Record<string, string> = { day: "pd", week: "pw", month: "pm", year: "py" };
-  const normalized = aliases[freshness] ?? freshness;
-  const { freshness: _old, ...rest } = record;
-  if (normalized === "recent") {
-    return rest;
-  }
-  const range = /^(\d{4}-\d{2}-\d{2})to(\d{4}-\d{2}-\d{2})$/.exec(normalized);
-  const validRange =
-    range &&
-    range[1] !== undefined &&
-    range[2] !== undefined &&
-    range[1] <= range[2] &&
-    range.slice(1).every((date) => {
-      const parsed = Date.parse(date);
-      return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === date;
-    });
-  if (!["pd", "pw", "pm", "py"].includes(normalized) && !validRange) {
-    throw new Error("Invalid Baidu freshness; use pd, pw, pm, py or YYYY-MM-DDtoYYYY-MM-DD");
-  }
-  return { ...rest, freshness: normalized };
-}
-
 /** Capture during construction; retained tools cannot borrow another request's budget. */
 export function captureTimerToolExecution() {
   const owner = state.context.getStore();
   return {
     assertRuntimeSupported: (runtime: string) => assertTimerOwnerRuntimeSupported(owner, runtime),
-    normalizeParams: (toolName: string, params: unknown) =>
-      owner ? normalizeBaiduFreshness(toolName, params) : params,
     async execute<T>(
       toolName: string,
       signal: AbortSignal | undefined,
@@ -227,10 +180,7 @@ export function captureTimerToolExecution() {
         toolTimer.unref?.();
       }
       effectiveSignal?.throwIfAborted();
-      state.actualToolExecutions += 1;
-      // Count the actual source promise, not the abort race exposed to the model.
       const completeActualExecution = () => {
-        state.actualToolExecutions -= 1;
         if (toolTimer) {
           clearTimeout(toolTimer);
         }

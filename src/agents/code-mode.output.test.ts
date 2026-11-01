@@ -15,7 +15,7 @@ import {
   testing,
   waitUntilCompleted,
 } from "./code-mode.test-support.js";
-import { getActualToolExecutionCount } from "./timer-execution-budget.js";
+import { getActualToolExecutionCount } from "./tool-execution-activity.js";
 import { addClientToolsToToolCatalog } from "./tool-search-catalog.js";
 import { jsonResult, type AnyAgentTool } from "./tools/common.js";
 

@@ -35,7 +35,8 @@ See [Operator scopes](/gateway/operator-scopes) and [Security](/gateway/security
 
 Scheduled clients can opt into a process-owned execution budget after authentication.
 Read the existing `status` RPC with its normal permissions and require
-`timerBudget.protocol = "timer-budget-v1"` before sending the JSON header
+`timerBudget.protocol = "timer-budget-v1"` and take the request owner from
+`timerBudget.ownerEpoch` before sending the JSON header
 `x-openclaw-timer-budget`:
 
 ```json
@@ -45,7 +46,7 @@ Read the existing `status` RPC with its normal permissions and require
   "answerReserveMs": 120000,
   "maxSearchCalls": 4,
   "searchCallTimeoutMs": 45000,
-  "expectedOwnerEpoch": "<ownerEpoch from status>"
+  "expectedOwnerEpoch": "<status.timerBudget.ownerEpoch>"
 }
 ```
 
@@ -69,10 +70,10 @@ answer from available evidence. Actual search tool calls share the per-request
 counter, including parallel calls; `tool_search` discovery does not consume a
 search call. Each search receives at most 45000 milliseconds or the shorter
 remaining research window. Other tools cannot extend beyond the research window.
-Baidu `baidu_search` and `baidu_web_search` freshness aliases `day`, `week`, `month`,
-and `year` become `pd`, `pw`, `pm`, and `py`; `recent` removes the filter. Invalid
-Baidu date filters fail before execution. Other search providers keep their own
-parameter contracts.
+Provider argument validation and normalization belong to each search plugin. The
+budget does not rewrite provider parameters. Clients using the standard HTTP
+contract need no budget or maintenance extension; they retain ordinary native
+run cancellation and must not claim these additional search/reserve guarantees.
 
 This version supports the in-process OpenClaw harness. Remote workers, CLI/native
 plugin harnesses, and unwrapped custom execution preparers fail closed for budgeted
@@ -80,10 +81,17 @@ requests because they do not carry the enforceable process owner. Normal wrapped
 OpenClaw tools are supported. This header does not authorize new tools or bypass
 existing policy checks.
 
+### Independent maintenance observation
+
 Cancellation requests a stop; it cannot prove that a JavaScript operation stopped.
+Task budgeting does not require `executionDrain`. Maintenance has its own owner
+epoch and must not borrow the task-budget epoch; clients must pin each capability
+from its own status field.
 `status.executionDrain` reports `protocol: "tool-drain-v1"`, a process-stable
 `ownerEpoch`, ISO `sampledAt`, `idle`, and all native active-work counts, including
-`actualToolExecutions` and `timerRequests`. These counters also participate in
+`actualToolExecutions` and `timerRequests`. Source tool settlement is recorded
+independently of budgeting, including ordinary requests; `timerRequests` retains
+its wire name for budgeted HTTP requests. These counters also participate in
 native suspension and safe-restart preflight. A tool whose source execute promise
 ignores cancellation continues blocking drain until that promise settles, even if
 its caller already received an abort result. This does not attest to hidden work

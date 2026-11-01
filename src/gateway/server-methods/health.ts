@@ -1,9 +1,10 @@
 import { isFutureDateTimestampMs } from "@openclaw/normalization-core/number-coercion";
 import { getPreparedModelRuntimeStartupStatus } from "../../agents/prepared-model-runtime.startup-status.js";
+import { getTimerBudgetCapabilities } from "../../agents/timer-execution-budget.js";
 import {
-  getTimerBudgetCapabilities,
+  getExecutionActivityOwnerEpoch,
   TOOL_DRAIN_PROTOCOL,
-} from "../../agents/timer-execution-budget.js";
+} from "../../agents/tool-execution-activity.js";
 import type { ChannelAccountSnapshot } from "../../channels/plugins/types.public.js";
 import { readChildRuntimeViability } from "../../infra/child-runtime-viability.js";
 import { formatErrorMessage as formatError } from "../../infra/errors.js";
@@ -199,7 +200,7 @@ export const healthHandlers: GatewayRequestHandlers = {
         executionDrain: {
           ...executionDrain,
           protocol: TOOL_DRAIN_PROTOCOL,
-          ownerEpoch: timerBudget.ownerEpoch,
+          ownerEpoch: getExecutionActivityOwnerEpoch(),
           sampledAt: new Date().toISOString(),
         },
         modelRuntime: getPreparedModelRuntimeStartupStatus(),

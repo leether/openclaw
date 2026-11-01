@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { recordStartupRecoveryStoreResult } from "../../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
 import { setPreparedModelRuntimeStartupStatus } from "../../agents/prepared-model-runtime.startup-status.js";
-import { captureTimerToolExecution } from "../../agents/timer-execution-budget.js";
+import { trackExecutionActivity } from "../../agents/tool-execution-activity.js";
 import { createGatewayHostLifecycle } from "../../cli/gateway-cli/host-lifecycle.js";
 import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -99,7 +99,7 @@ describe("Gateway status owner routing", () => {
       };
       const release = createDeferred();
       const started = createDeferred();
-      const pending = captureTimerToolExecution().execute("fixture", undefined, async () => {
+      const pending = trackExecutionActivity("tools", async () => {
         started.resolve();
         await release.promise;
       });
@@ -114,7 +114,7 @@ describe("Gateway status owner routing", () => {
         expect(payload.executionDrain).toMatchObject({
           protocol: "tool-drain-v1",
           idle: false,
-          ownerEpoch: payload.timerBudget.ownerEpoch,
+          ownerEpoch: expect.any(String),
           counts: { actualToolExecutions: 1 },
         });
         expect(Number.isFinite(Date.parse(payload.executionDrain.sampledAt))).toBe(true);

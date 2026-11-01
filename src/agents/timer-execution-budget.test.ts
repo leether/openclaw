@@ -18,12 +18,11 @@ import {
   assertTimerBudgetRuntimeSupported,
   captureTimerToolExecution,
   createTimerExecutionBudget,
-  getActualToolExecutionCount,
   getTimerBudgetCapabilities,
-  getTimerRequestCount,
   parseTimerExecutionBudgetHeader,
   type TimerExecutionBudgetSpec,
 } from "./timer-execution-budget.js";
+import { getActualToolExecutionCount } from "./tool-execution-activity.js";
 import {
   applyToolSearchCatalog,
   clearToolSearchCatalog,
@@ -60,7 +59,6 @@ function budget(
 afterEach(() => {
   try {
     expect(getActualToolExecutionCount()).toBe(0);
-    expect(getTimerRequestCount()).toBe(0);
   } finally {
     vi.useRealTimers();
     resetAllLanes();
@@ -142,7 +140,6 @@ describe("real tool execution boundary", () => {
       await settled;
       // The owner's abort race can settle before the dispatcher's own finally.
       await expect.poll(getActualToolExecutionCount).toBe(1);
-      expect(getTimerRequestCount()).toBe(0);
       deferred.resolve(result);
       await expect.poll(getActualToolExecutionCount).toBe(0);
       expect(sourceCalls).toBe(1);
@@ -255,42 +252,14 @@ describe("real tool execution boundary", () => {
       expect(JSON.stringify(outcomes)).toContain("search-call budget exhausted");
     });
   });
-  it.each([
-    ["month", "pm"],
-    ["week", "pw"],
-    ["day", "pd"],
-    ["year", "py"],
-    ["pm", "pm"],
-    ["2026-10-01to2026-10-20", "2026-10-01to2026-10-20"],
-    ["recent", undefined],
-  ])("normalizes Baidu freshness %s at source entry", async (freshness, expected) => {
+  it("leaves provider-owned parameters unchanged in budgeted and ordinary calls", async () => {
     const execute = vi.fn<AnyAgentTool["execute"]>(async () => result);
+    const params = { freshness: "month" };
     await budget().run(async () => {
-      await tool("baidu_search", execute).execute("freshness", { freshness });
+      await tool("baidu_search", execute).execute("budgeted", params);
     });
-    expect(execute.mock.calls[0]?.[1]).toEqual(expected ? { freshness: expected } : {});
-  });
-  it("rejects blank or unknown Baidu freshness before source execution", async () => {
-    const execute = vi.fn<AnyAgentTool["execute"]>(async () => result);
-    await budget().run(async () => {
-      for (const freshness of ["", " ", "last-month", null, 7]) {
-        await expect(
-          tool("baidu_search", execute).execute("invalid", { freshness }),
-        ).rejects.toThrow("Invalid Baidu freshness");
-      }
-    });
-    expect(execute).not.toHaveBeenCalled();
-  });
-  it("rejects impossible dates before execute and leaves Tavily freshness untouched", async () => {
-    const execute = vi.fn<AnyAgentTool["execute"]>(async () => result);
-    await budget().run(async () => {
-      await expect(
-        tool("baidu_search", execute).execute("bad", { freshness: "2026-02-30to2026-03-10" }),
-      ).rejects.toThrow("Invalid Baidu");
-      await tool("tavily_search", execute).execute("valid-tavily", { freshness: "recent" });
-    });
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0]?.[1]).toEqual({ freshness: "recent" });
+    await tool("baidu_search", execute).execute("ordinary", params);
+    expect(execute.mock.calls.map((call) => call[1])).toEqual([params, params]);
   });
   it("keeps legacy calls unchanged and tracks their actual settlement", async () => {
     const deferred = createDeferredCore<typeof result>();
@@ -305,6 +274,9 @@ describe("real tool execution boundary", () => {
       expect(execute).toHaveBeenCalledOnce();
       expect(getActualToolExecutionCount()).toBe(1);
       expect(execute.mock.calls[0]?.[1]).toEqual({ freshness: "month" });
+      expect(createGatewayActiveWorkSnapshot().blockers).toContainEqual(
+        expect.objectContaining({ kind: "tool-execution", count: 1 }),
+      );
     } finally {
       deferred.resolve(result);
       await pending;
@@ -323,7 +295,6 @@ describe("real tool execution boundary", () => {
         "answer reserve",
       );
       // Model answering has no tool admission and remains allowed during the reserve.
-      expect(getTimerRequestCount()).toBe(1);
     });
     expect(execute).not.toHaveBeenCalled();
   });
@@ -390,7 +361,6 @@ describe("real tool execution boundary", () => {
       await started.promise;
       caller.abort(new Error("synthetic caller cancellation"));
       await rejected;
-      expect(getTimerRequestCount()).toBe(0);
       expect(createGatewayActiveWorkSnapshot().counts.actualToolExecutions).toBe(1);
     } finally {
       caller.abort();

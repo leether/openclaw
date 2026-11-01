@@ -3,10 +3,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { wrapToolWithBeforeToolCallHook } from "../agents/agent-tools.before-tool-call.wrapper.js";
 import type { AnyAgentTool } from "../agents/agent-tools.types.js";
-import {
-  getTimerBudgetCapabilities,
-  getTimerRequestCount,
-} from "../agents/timer-execution-budget.js";
+import { getTimerBudgetCapabilities } from "../agents/timer-execution-budget.js";
+import { getTimerRequestCount } from "../agents/tool-execution-activity.js";
 import {
   agentCommandMock,
   getGatewayTestPort,
@@ -82,7 +80,7 @@ describe("authenticated timer budget HTTP contract", () => {
       const response = await post({}, headers(remainingMs));
       expect(response.status).toBe(200);
       expect(response.headers.get("x-openclaw-timer-budget")).toBe("timer-budget-v1");
-      expect(execute.mock.calls[0]?.[1]).toEqual({ freshness: "pm" });
+      expect(execute.mock.calls[0]?.[1]).toEqual({ freshness: "month" });
       await response.text();
     },
   );

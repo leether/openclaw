@@ -40,6 +40,7 @@ import {
 } from "./runtime/internal-hooks.js";
 import type { ToolDefinition } from "./sessions/index.js";
 import { captureTimerToolExecution } from "./timer-execution-budget.js";
+import { trackExecutionActivity } from "./tool-execution-activity.js";
 import { readToolOperatorHint } from "./tool-operator-hint.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 import { jsonResult, payloadTextResult, ToolInputError } from "./tools/common.js";
@@ -438,9 +439,10 @@ export function toToolDefinitions(
             if (beforeHookWrapped) {
               return await tool.execute(toolCallId, executeParams, signal, onUpdate);
             }
-            executeParams = timerExecution.normalizeParams(name, executeParams);
             return await timerExecution.execute(name, signal, (toolSignal) =>
-              tool.execute(toolCallId, executeParams, toolSignal, onUpdate),
+              trackExecutionActivity("tools", () =>
+                tool.execute(toolCallId, executeParams, toolSignal, onUpdate),
+              ),
             );
           },
         });
@@ -519,7 +521,9 @@ export function toToolDefinitions(
           return settle(() =>
             beforeHookWrapped
               ? ready.execute(onImplementationStart)
-              : timerExecution.execute(name, signal, () => ready.execute(onImplementationStart)),
+              : timerExecution.execute(name, signal, () =>
+                  trackExecutionActivity("tools", () => ready.execute(onImplementationStart)),
+                ),
           );
         },
         dispose: ready.dispose,

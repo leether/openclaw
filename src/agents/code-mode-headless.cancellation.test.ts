@@ -8,7 +8,7 @@ import {
   resetCodeModeTestState,
   testing,
 } from "./code-mode.test-support.js";
-import { getActualToolExecutionCount } from "./timer-execution-budget.js";
+import { getActualToolExecutionCount } from "./tool-execution-activity.js";
 import { jsonResult } from "./tools/common.js";
 
 describe("headless Code Mode cancellation", () => {

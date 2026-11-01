@@ -4,6 +4,7 @@ import {
   parseTimerExecutionBudgetHeader,
   TIMER_BUDGET_PROTOCOL,
 } from "../agents/timer-execution-budget.js";
+import { trackExecutionActivity } from "../agents/tool-execution-activity.js";
 import { sendInvalidRequest, sendJson } from "./http-common.js";
 
 /** Called only after the HTTP endpoint has authenticated and bounded its JSON intake. */
@@ -35,5 +36,7 @@ export async function runWithHttpTimerExecutionBudget(
     res.setHeader("x-openclaw-timer-budget", TIMER_BUDGET_PROTOCOL);
   }
   const execute = () => run(abortController, Boolean(timerBudget));
-  return timerBudget ? await timerBudget.run(execute) : await execute();
+  return timerBudget
+    ? await trackExecutionActivity("requests", () => timerBudget.run(execute))
+    : await execute();
 }

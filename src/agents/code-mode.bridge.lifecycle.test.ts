@@ -35,7 +35,7 @@ import { emitAssistantTextDeltaAndEnd } from "./embedded-agent-subscribe.e2e-har
 import { countActiveToolExecutions } from "./embedded-agent-subscribe.handlers.tools.js";
 import { attachInternalToolExecutionPreparer } from "./runtime/internal-hooks.js";
 import { SessionManager } from "./sessions/session-manager.js";
-import { getActualToolExecutionCount } from "./timer-execution-budget.js";
+import { getActualToolExecutionCount } from "./tool-execution-activity.js";
 import { addClientToolsToToolCatalog } from "./tool-search-catalog.js";
 import { ToolSearchRuntime } from "./tool-search-runtime.js";
 import { clearToolSearchCatalog } from "./tool-search.js";
