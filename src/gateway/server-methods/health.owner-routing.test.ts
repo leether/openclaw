@@ -118,6 +118,7 @@ describe("Gateway status owner routing", () => {
           counts: { actualToolExecutions: 1 },
         });
         expect(Number.isFinite(Date.parse(payload.executionDrain.sampledAt))).toBe(true);
+        expect(payload.executionDrain.ownerEpoch).not.toBe(payload.timerBudget.ownerEpoch);
         release.resolve();
         await pending;
         const after = (await callStatus(config)).mock.calls[0]?.[1];
