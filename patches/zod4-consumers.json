@@ -55,19 +55,30 @@
       "version": "2.5.0",
       "officialIntegrity": "sha512-FNoe5PbSkoKEbqPubaBmq6tlEMOftMjR3gu55YrdrrKmBfKKM4i9P/Z+Zxl0RZdJcKviBwVcTyYMMPM/aGex/w==",
       "patch": "patches/@discord__embedded-app-sdk@2.5.0.patch",
-      "patchSha256": "4be78847af08dac5135d2aab19b6bf7f812744244d880d9c573cd28c8660b4bc",
+      "patchSha256": "01c1e5be0adccc7206fe8a81fdc42a3cfe84e789688a5e3f5663789154413482",
       "sourcePatch": "patches/discord-2.5.0-zod4.6.6-source.patch",
       "sourcePatchSha256": "17ec6e28c9109f6f234fa53f7c34f8872107c7579d5fb0c9dabb1724c47ca8d1",
       "fileCount": 231,
-      "targetTreeSha256": "55ca2312208c200274bba44b6fb269cd79d769874b2453e685b542d42533a735",
+      "targetTreeSha256": "a23dd2f11ed0baf71e60f4f9cd1c04e2fc920b57898fa12cc729fe4b8364e432",
       "packageJsonVariants": [
         {
-          "sha256": "8c3ac12abe98b863a95d972f27ad0df500716119cfe7e6a16558d70afedf813f",
-          "bytes": 2690,
+          "sha256": "79993c4cda5a6de1ac654029c3c7a43712c5b309802d6e3068523f371389e839",
+          "bytes": 2689,
           "mode": "0o644"
         }
       ],
-      "packageJsonNormalization": "Only the exact official-final bytes or pnpm 12 removal of one trailing LF are accepted."
+      "packageJsonNormalization": "Only the exact pnpm-generated packaging metadata overlay bytes are accepted.",
+      "packagingMetadataOverlay": {
+        "field": "dependencies.uuid",
+        "previous": "^11.0.0",
+        "value": "14.0.2",
+        "alreadyResolvedByBaselineCommit": "383c124cc32ffee3f8e56f549b88da94d269a4af",
+        "previousPackageJsonSha256": "8c3ac12abe98b863a95d972f27ad0df500716119cfe7e6a16558d70afedf813f",
+        "preservedOutputFiles": 227,
+        "preservedOutputTreeSha256": "f35c7ff1f42be3e89c3d15eda0634d1e2ffc8b9872f76ebb39cab26e17975d5a",
+        "sourcePatchUnchanged": true,
+        "sourceBuildDependencyDeclarationUnchanged": true
+      }
     }
   ]
 }

@@ -39,6 +39,7 @@ import {
 import {
   installControlUiE2ePageDiagnosticRing,
   installControlUiE2eUnhandledRejectionRing,
+  recordControlUiE2eNavigation,
 } from "./control-ui-e2e-diagnostics.ts";
 import { resolveAvailableLoopbackPort } from "./control-ui-e2e-port.ts";
 import {
@@ -2903,14 +2904,34 @@ export async function installMockGateway(
     const goto = page.goto.bind(page);
     const reload = page.reload.bind(page);
     page.goto = async (...args) => {
-      const response = await goto(...args);
-      await waitForControlUiInitialRoster(page);
-      return response;
+      const navigationId = recordControlUiE2eNavigation(page, "goto", {
+        waitUntil: args[1]?.waitUntil,
+      });
+      try {
+        const response = await goto(...args);
+        recordControlUiE2eNavigation(page, "native-resolved", { navigationId });
+        await waitForControlUiInitialRoster(page, navigationId);
+        recordControlUiE2eNavigation(page, "complete", { navigationId });
+        return response;
+      } catch (error) {
+        recordControlUiE2eNavigation(page, "failed", { navigationId });
+        throw error;
+      }
     };
     page.reload = async (...args) => {
-      const response = await reload(...args);
-      await waitForControlUiInitialRoster(page);
-      return response;
+      const navigationId = recordControlUiE2eNavigation(page, "reload", {
+        waitUntil: args[0]?.waitUntil,
+      });
+      try {
+        const response = await reload(...args);
+        recordControlUiE2eNavigation(page, "native-resolved", { navigationId });
+        await waitForControlUiInitialRoster(page, navigationId);
+        recordControlUiE2eNavigation(page, "complete", { navigationId });
+        return response;
+      } catch (error) {
+        recordControlUiE2eNavigation(page, "failed", { navigationId });
+        throw error;
+      }
     };
   }
   return createMockGatewayControls(

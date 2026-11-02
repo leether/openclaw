@@ -886,10 +886,11 @@ describe("private subagent completion processing receipts", () => {
     async (kind) => {
       const consumed = createDeferred();
       const release = createDeferred();
+      let inputRecorder: ReturnType<typeof recorder> | undefined;
       agentCommandMock.mockImplementationOnce(async (input) => {
         const command = input as AgentCommandOpts;
         await command.onExecutionStarted?.();
-        const inputRecorder = recorder(input);
+        inputRecorder = recorder(input);
         await inputRecorder.persistApproved();
         inputRecorder.markSentToProvider?.();
         consumed.resolve();
@@ -960,7 +961,14 @@ describe("private subagent completion processing receipts", () => {
         if (kind === "abandoned") {
           // Keep the real terminal write and raw execution pending through timeout settlement.
           expect(terminalWrite).toBeInstanceOf(Promise);
+          expect(active.pendingTimeoutCompletion).toBeDefined();
           await clock.advanceBy(60_000);
+          expect(active.pendingTimeoutCompletion).toBeUndefined();
+          // The scheduler starts settlement; the recorder owns its asynchronous SQLite commit.
+          await expectDefined(
+            expectDefined(inputRecorder, "private input recorder").waitForPendingInputSettlement,
+            "private input persistence barrier",
+          )();
           expect(kernel.gatewayRequestContext.chatAbortControllers.get(runId)).toBe(active);
           expect(active.executionSettlement?.status).toBe("pending");
           expect(active.projectSessionTerminalPending).toBe(true);
@@ -972,15 +980,19 @@ describe("private subagent completion processing receipts", () => {
           });
         }
       } finally {
-        await timers.stopPeriodicTasks();
-        await timers.skillUsageCleanup();
-        now.mockRestore();
-        releaseTerminalWrite.resolve();
-        release.resolve();
         try {
-          await terminalWrite;
+          await timers.stopPeriodicTasks();
+          await timers.skillUsageCleanup();
         } finally {
-          delayedTerminalWrite?.mockRestore();
+          now.mockRestore();
+          releaseTerminalWrite.resolve();
+          release.resolve();
+          try {
+            await terminalWrite;
+          } finally {
+            delayedTerminalWrite?.mockRestore();
+            await observed;
+          }
         }
       }
       const response = await observed;

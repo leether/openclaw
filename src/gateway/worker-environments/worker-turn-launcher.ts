@@ -5,6 +5,7 @@ import type {
   LocalTurnPlacementClaim,
   SessionPlacementAdmissionProvider,
 } from "../../agents/session-placement-admission.js";
+import { assertTimerBudgetRuntimeSupported } from "../../agents/timer-execution-budget.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { emitAgentRunStatusEvent } from "../../infra/agent-run-status-events.js";
 import { markDiagnosticRunProgress } from "../../logging/diagnostic-run-activity.js";
@@ -211,6 +212,7 @@ export function createWorkerSessionTurnPlacementProvider(options: WorkerTurnLaun
       if (!current || current.state === "local") {
         return await runLocalTurn();
       }
+      assertTimerBudgetRuntimeSupported("worker");
       const hasPendingWorkspaceResultToSettle = async (sessionId: string, runId: string) =>
         (await options.placements.listPendingWorkspaceResultsAsync(sessionId)).some(
           (pending) =>

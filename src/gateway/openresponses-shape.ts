@@ -1,5 +1,12 @@
+import type { ClientToolDefinition } from "../agents/command/shared-types.js";
 import { toOpenAiResponsesUsage } from "../agents/usage.js";
-import type { OutputItem, ResponseResource, Usage } from "./open-responses.schema.js";
+import type {
+  CreateResponseBody,
+  OutputItem,
+  ResponseResource,
+  Usage,
+} from "./open-responses.schema.js";
+import { resolveAgentRunUsage } from "./openai-agent-run-usage.js";
 
 export function createAssistantOutputItem(params: {
   id: string;
@@ -56,4 +63,21 @@ export function createResponseResource(params: {
       ? { incomplete_details: { reason: "max_output_tokens" as const } }
       : {}),
   };
+}
+
+export function extractClientTools(body: CreateResponseBody): ClientToolDefinition[] {
+  // Normalize from Responses API flat format to the internal wrapped format.
+  return (body.tools ?? []).map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      strict: tool.strict,
+    },
+  }));
+}
+
+export function extractUsageFromResult(result: unknown): Usage {
+  return toOpenAiResponsesUsage(resolveAgentRunUsage(result));
 }

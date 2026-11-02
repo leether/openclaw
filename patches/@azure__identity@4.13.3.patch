@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index 49d17333da04da2929fa25363511b8d53500bbd6..4168a6c90c73a4893d39e2401628db5d0668f8aa 100644
+--- a/package.json
++++ b/package.json
+@@ -76,7 +76,7 @@
+     "@azure/core-util": "^1.11.0",
+     "@azure/logger": "^1.0.0",
+     "@azure/msal-browser": "^5.5.0",
+-    "@azure/msal-node": "^6.0.0",
++    "@azure/msal-node": "7.1.0",
+     "open": "^10.1.0",
+     "tslib": "^2.2.0"
+   },

@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isClientToolNameConflictError } from "../agents/agent-tool-definition-adapter.js";
-import type { ClientToolDefinition } from "../agents/command/shared-types.js";
 import type { ImageContent } from "../agents/command/types.js";
 import { toOpenAiResponsesUsage } from "../agents/usage.js";
 import { getRuntimeConfig } from "../config/io.js";
@@ -36,6 +35,7 @@ import {
 } from "./http-common.js";
 import { handleGatewayPostJsonEndpoint } from "./http-endpoint-helpers.js";
 import { assertGatewayHttpRequestCurrent } from "./http-request-authority.js";
+import { runWithHttpTimerExecutionBudget } from "./http-timer-execution-budget.js";
 import { rejectDisabledGatewayUpload } from "./http-upload-policy.js";
 import {
   type AuthorizedGatewayHttpRequest,
@@ -53,13 +53,11 @@ import {
 } from "./http-utils.js";
 import {
   CreateResponseBodySchema,
-  type CreateResponseBody,
   type OutputItem,
   type ResponseResource,
   type StreamingEvent,
   type Usage,
 } from "./open-responses.schema.js";
-import { resolveAgentRunUsage } from "./openai-agent-run-usage.js";
 import {
   type OpenAiCompatiblePendingToolCall,
   readOpenAiHttpRunTerminal,
@@ -80,6 +78,8 @@ import {
   createAssistantOutputItem,
   createFunctionCallOutputItem,
   createResponseResource,
+  extractClientTools,
+  extractUsageFromResult,
 } from "./openresponses-shape.js";
 import { authorizeGatewaySessionCreation } from "./operator-role-policy.js";
 import type { GatewayContextResolver } from "./server-methods/types.js";
@@ -123,23 +123,6 @@ function writeSseEvent(res: ServerResponse, event: StreamingEvent) {
   res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
-function extractClientTools(body: CreateResponseBody): ClientToolDefinition[] {
-  // Normalize from Responses API flat format to the internal wrapped format.
-  return (body.tools ?? []).map((tool) => ({
-    type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-      strict: tool.strict,
-    },
-  }));
-}
-
-function extractUsageFromResult(result: unknown): Usage {
-  return toOpenAiResponsesUsage(resolveAgentRunUsage(result));
-}
-
 export async function handleOpenResponsesHttpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -164,7 +147,20 @@ export async function handleOpenResponsesHttpRequest(
   if (!handled) {
     return true;
   }
-  const abortController = new AbortController();
+  return await runWithHttpTimerExecutionBudget(req, res, (abortController, budgetAccepted) =>
+    handleAuthorizedRequest(req, res, opts, limits, handled, abortController, budgetAccepted),
+  );
+}
+
+async function handleAuthorizedRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: OpenAiCompatibleHttpOptions<GatewayHttpResponsesConfig>,
+  limits: ReturnType<typeof resolveResponsesLimits>,
+  handled: { body: unknown; requestAuth: AuthorizedGatewayHttpRequest; operatorScopes: string[] },
+  abortController: AbortController,
+  awaitStreamingExecution: boolean,
+): Promise<boolean> {
   // The signal owns preparation; SSE installs presentation cleanup below.
   let onDisconnect = () => {};
   watchClientDisconnect(req, res, abortController, () => onDisconnect());
@@ -190,8 +186,7 @@ export async function handleOpenResponsesHttpRequest(
     return true;
   }
   const stream = Boolean(payload.stream);
-  const model = payload.model;
-  const user = payload.user;
+  const { model, user } = payload;
   let agentId: string;
   try {
     agentId = resolveAgentIdForRequest({ req, model });
@@ -815,7 +810,7 @@ export async function handleOpenResponsesHttpRequest(
     releaseStreamRootWork();
   };
 
-  void (async () => {
+  const streamingExecution = (async () => {
     try {
       const result = await runAgentCommand();
 
@@ -889,6 +884,10 @@ export async function handleOpenResponsesHttpRequest(
       }
     }
   })();
+  // Keep the budget owner alive through the real agent promise, not just SSE setup.
+  if (awaitStreamingExecution) {
+    await streamingExecution;
+  }
 
   return true;
 }

@@ -7,13 +7,73 @@ import type { MockGatewayWindow } from "./control-ui-e2e-contract.ts";
 export const controlUiE2eWaitTimeoutMs =
   process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true" ? 30_000 : 10_000;
 
+const rosterReadinessAttempts = new WeakMap<Page, number>();
+
 /** Selected descriptors and cached rows can render before the authoritative roster. */
-export async function waitForControlUiInitialRoster(page: Page): Promise<void> {
+export async function waitForControlUiInitialRoster(
+  page: Page,
+  originatingNavigationId: number | null = null,
+): Promise<void> {
+  const nextAttempt = (rosterReadinessAttempts.get(page) ?? 0) + 1;
+  rosterReadinessAttempts.set(page, nextAttempt);
   try {
     const ready = await page.waitForFunction(
-      () => {
+      ({ attempt, navigationId }) => {
+        // Fixed facts only; observing a stage never resolves or replaces its Promise.
+        type Phase =
+          | "predicate"
+          | "app-update"
+          | "shell-update"
+          | "sidebar-update"
+          | "animation-frame"
+          | "complete";
+        const record = (phase: Phase, reason: string | null = null, poll = false) => {
+          try {
+            const target = window as Window & {
+              __OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__?: {
+                attempt: number;
+                navigationId: number | null;
+                phase: Phase;
+                reason: string | null;
+                timeOriginMs: number;
+                phaseEnteredAtMs: Partial<Record<Phase, number>>;
+                phaseStartedAtMs: number;
+                sampledAtMs: number;
+                pollCount: number;
+              };
+            };
+            const now = performance.now();
+            const previous = target["__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__"];
+            // A timed-out Promise can finish after a newer same-document wait starts.
+            if (previous && previous.attempt > attempt) {
+              return;
+            }
+            const current = previous?.attempt === attempt ? previous : undefined;
+            target["__OPENCLAW_CONTROL_UI_E2E_ROSTER_READINESS__"] = {
+              attempt,
+              navigationId,
+              phase,
+              reason,
+              timeOriginMs: performance.timeOrigin,
+              phaseEnteredAtMs: {
+                ...current?.phaseEnteredAtMs,
+                [phase]: current?.phaseEnteredAtMs[phase] ?? now,
+              },
+              phaseStartedAtMs: current?.phase === phase ? current.phaseStartedAtMs : now,
+              sampledAtMs: now,
+              pollCount: Math.min(
+                Number.MAX_SAFE_INTEGER,
+                (current?.pollCount ?? 0) + (poll ? 1 : 0),
+              ),
+            };
+          } catch {
+            // Diagnostics must not replace the original wait result or failure.
+          }
+        };
+        record("predicate", null, true);
         // A commit-only navigation can finish before HTML reaches the static app tag.
         if (document.readyState === "loading") {
+          record("predicate", "document-loading");
           return false;
         }
         const app = document.querySelector("openclaw-app") as
@@ -38,9 +98,18 @@ export async function waitForControlUiInitialRoster(page: Page): Promise<void> {
             })
           | null;
         if (!app) {
+          record("complete", "app-absent");
           return true;
         }
         if (!app.hasUpdated || app.isUpdatePending || !app.runtime) {
+          record(
+            "predicate",
+            !app.hasUpdated
+              ? "app-not-updated"
+              : app.isUpdatePending
+                ? "app-update-pending"
+                : "runtime-absent",
+          );
           return false;
         }
         const gateway = (window as MockGatewayWindow).openclawControlUiE2eGateway;
@@ -53,6 +122,7 @@ export async function waitForControlUiInitialRoster(page: Page): Promise<void> {
           phase === "offline" ||
           phase === "reload-required"
         ) {
+          record("complete", "offline");
           return true;
         }
         if (
@@ -60,6 +130,7 @@ export async function waitForControlUiInitialRoster(page: Page): Promise<void> {
           app.runtime.focusLocation ||
           app.querySelector("openclaw-login-gate")
         ) {
+          record("complete", "special-view");
           return true;
         }
         const shell = app.querySelector("openclaw-app-shell") as
@@ -75,6 +146,14 @@ export async function waitForControlUiInitialRoster(page: Page): Promise<void> {
           | null;
         // Root and route splashes precede the shell's navigation decision.
         if (!shell?.hasUpdated || shell.isUpdatePending || !shell.querySelector(".shell")) {
+          record(
+            "predicate",
+            !shell?.hasUpdated
+              ? "shell-not-updated"
+              : shell.isUpdatePending
+                ? "shell-update-pending"
+                : "shell-content-absent",
+          );
           return false;
         }
         const sidebar = shell.navigationSidebar;
@@ -82,6 +161,7 @@ export async function waitForControlUiInitialRoster(page: Page): Promise<void> {
         // in the first shell render even while its definition is loading. Settings
         // and embed omit it; the owner hides it for onboarding/collapsed/mobile nav.
         if (!sidebar.isConnected || sidebar.navigationVisible === false) {
+          record("complete", "sidebar-omitted");
           return true;
         }
         const state = app.runtime.context?.sessions?.state;
@@ -92,21 +172,38 @@ export async function waitForControlUiInitialRoster(page: Page): Promise<void> {
           state.resultCached ||
           !sidebar?.updateComplete
         ) {
+          record(
+            "predicate",
+            !gateway?.initialRosterDelivered
+              ? "roster-not-delivered"
+              : !state?.result
+                ? "sessions-result-absent"
+                : state.loading
+                  ? "sessions-loading"
+                  : state.resultCached
+                    ? "sessions-cached"
+                    : "sidebar-update-absent",
+          );
           return false;
         }
         // Playwright treats a Promise as a truthy predicate, even if it resolves false.
         // Return one only after admission; keep the render completion inside its timeout.
         return (async () => {
+          record("app-update");
           await app.updateComplete;
+          record("shell-update");
           await shell.updateComplete;
+          record("sidebar-update");
           await sidebar.updateComplete;
+          record("animation-frame");
           await new Promise<void>((resolve) => {
             requestAnimationFrame(() => resolve());
           });
+          record("complete");
           return true;
         })();
       },
-      undefined,
+      { attempt: nextAttempt, navigationId: originatingNavigationId },
       { timeout: controlUiE2eWaitTimeoutMs },
     );
     await ready.dispose();

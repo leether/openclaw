@@ -31,6 +31,80 @@ For the canonical explanation of agent-target models, `openclaw/default`, embedd
 
 See [Operator scopes](/gateway/operator-scopes) and [Security](/gateway/security).
 
+## Bounded timer requests
+
+Scheduled clients can opt into a process-owned execution budget after authentication.
+Read the existing `status` RPC with its normal permissions and require
+`timerBudget.protocol = "timer-budget-v1"` and take the request owner from
+`timerBudget.ownerEpoch` before sending the JSON header
+`x-openclaw-timer-budget`:
+
+```json
+{
+  "version": "timer-budget-v1",
+  "remainingMs": 480000,
+  "answerReserveMs": 120000,
+  "maxSearchCalls": 4,
+  "searchCallTimeoutMs": 45000,
+  "expectedOwnerEpoch": "<status.timerBudget.ownerEpoch>"
+}
+```
+
+`remainingMs` is an integer from 1 through 480000. `maxSearchCalls` is an integer
+from 0 through 4; the reserve and search timeout have the fixed values shown.
+Unknown fields and a mismatched owner epoch fail before dispatch. Clients that
+need restart-safe negotiation must supply the epoch and require the response
+header `x-openclaw-timer-budget: timer-budget-v1`; an older Gateway may ignore an
+unknown request header. Without this header, the existing request behavior remains.
+
+The deadline starts after authenticated JSON intake and includes preparation,
+queue waiting, compaction, tools, and the subsequent answer. Clients still own
+network/intake time and any shared deadline across multiple generation requests.
+For a shorter-budget rollback, keep capability checking and send the actual
+remaining time, for example at most 240000; do not silently remove the contract.
+The budget limits work; it does not guarantee that a model can finish an answer.
+
+At the source tool execution boundary, tools are denied once the answer reserve
+starts. A request arriving with less than 120000 milliseconds remaining can still
+answer from available evidence. Actual search tool calls share the per-request
+counter, including parallel calls; `tool_search` discovery does not consume a
+search call. Each search receives at most 45000 milliseconds or the shorter
+remaining research window. Other tools cannot extend beyond the research window.
+Provider argument validation and normalization belong to each search plugin. The
+budget does not rewrite provider parameters. Clients using the standard HTTP
+contract need no budget or maintenance extension; they retain ordinary native
+run cancellation and must not claim these additional search/reserve guarantees.
+
+This version supports the in-process OpenClaw harness. Remote workers, CLI/native
+plugin harnesses, and unwrapped custom execution preparers fail closed for budgeted
+requests because they do not carry the enforceable process owner. Normal wrapped
+OpenClaw tools are supported. This header does not authorize new tools or bypass
+existing policy checks.
+
+### Independent maintenance observation
+
+Cancellation requests a stop; it cannot prove that a JavaScript operation stopped.
+Task budgeting does not require `executionDrain`. Maintenance has its own owner
+epoch and must not borrow the task-budget epoch; clients must pin each capability
+from its own status field.
+`status.executionDrain` reports `protocol: "tool-drain-v1"`, a process-stable
+`ownerEpoch`, ISO `sampledAt`, `idle`, and all native active-work counts, including
+`actualToolExecutions` and `timerRequests`. Source tool settlement is recorded
+independently of budgeting, including ordinary requests; `timerRequests` retains
+its wire name for budgeted HTTP requests. These counters also participate in
+native suspension and safe-restart preflight. A tool whose source execute promise
+ignores cancellation continues blocking drain until that promise settles, even if
+its caller already received an abort result. This does not attest to hidden work
+that a tool detached before returning; such tools must use native background-work
+tracking. Drain readers must reject missing/malformed capabilities or an owner
+epoch change and take a fresh snapshot before any separately authorized shutdown.
+
+The native HTTP, parser, cancellation, and drain tests run without external repositories.
+The additional Bridge wire qualification is opt-in because ordinary source CI has no
+Bridge checkout: run `BRIDGE_SOURCE=/path/to/bridge node scripts/run-vitest.mjs src/gateway/openresponses-timer-wire-server.test.ts` with the Bridge's `test/timer-budget-wire.mjs` fixture available.
+Without that checkout, this one cross-repository test is explicitly skipped; the skip
+is not cross-repository qualification.
+
 ## Session behavior
 
 By default the endpoint is **stateless per request** (a new session key is generated each call).

@@ -160,6 +160,33 @@ function checkTarball({
 }
 
 describe("check-openclaw-package-tarball", () => {
+  it.each([
+    {
+      openclawBundledNpmDerivation: "unreviewed",
+      dependencies: { npm: "12.2.1" },
+      bundleDependencies: ["npm"],
+    },
+    {
+      openclawBundledNpmDerivation: "npm-12.2.1-undici-6.29.1-v1",
+      dependencies: { npm: "12.1.0" },
+      bundleDependencies: ["npm"],
+    },
+    {
+      openclawBundledNpmDerivation: "npm-12.2.1-undici-6.29.1-v1",
+      dependencies: { npm: "12.2.1" },
+      bundleDependencies: [],
+    },
+  ])(
+    "rejects an invalid bundled npm contract through the actual tarball checker: %j",
+    (packageJson) => {
+      checkTarball({
+        options: { packageJson },
+        status: "nonzero",
+        stderr: ["invalid bundled npm derivation contract"],
+      });
+    },
+  );
+
   it("prints help before touching tarball state", () => {
     const result = spawnSync("node", [PUBLIC_CHECK_SCRIPT, "--help"], { encoding: "utf8" });
 

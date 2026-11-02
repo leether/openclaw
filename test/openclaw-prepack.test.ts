@@ -21,6 +21,7 @@ import { pnpmLockfileDocuments } from "../scripts/lib/pnpm-lockfile-documents.mj
 import { restorePrepackArtifacts } from "../scripts/openclaw-postpack.mjs";
 import {
   collectPreparedPrepackErrors,
+  collectSourcePackDerivationErrors,
   collectSourcePackWorkspaceDependencyErrors,
   resolvePrepackAllowUnreleasedChangelog,
   resolvePrepackBuildEnvironment,
@@ -39,6 +40,66 @@ import { useAutoCleanupTempDirTracker } from "./helpers/temp-dir.js";
 import { toolingTsEntrypoints } from "./scripts/tooling-ts-runtime.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+describe("exact npm derivative source pack admission", () => {
+  it("preserves ordinary packs without a derivative contract", () => {
+    expect(collectSourcePackDerivationErrors({ dependencies: { npm: "12.2.1" } })).toEqual([]);
+  });
+
+  it.each(["npm-12.2.1-undici-6.29.1-v1", "unknown-contract", null])(
+    "requires the materialization and restoration owner for marker %s",
+    (marker) => {
+      const errors = collectSourcePackDerivationErrors({ openclawBundledNpmDerivation: marker });
+      expect(errors).toHaveLength(2);
+      expect(errors[0]).toContain("cannot materialize and restore");
+      expect(errors[1]).toContain("package-openclaw-for-docker.mjs");
+      expect(errors[1]).toContain("prepared release and OCM flags do not bypass");
+    },
+  );
+
+  it.each(["prepared", "ocm"])("rejects %s at the actual prepack entry before mutation", (mode) => {
+    const rootDir = tempDirs.make("openclaw-npm-derived-prepack-");
+    const aiDir = path.join(rootDir, "ai");
+    mkdirSync(aiDir);
+    writeFileSync(path.join(aiDir, "package.json"), '{"name":"@openclaw/ai"}\n');
+    const source = JSON.stringify({
+      name: "openclaw",
+      dependencies: { "@openclaw/ai": "workspace:*", npm: "12.2.1" },
+      bundleDependencies: ["npm"],
+      openclawBundledNpmDerivation: "npm-12.2.1-undici-6.29.1-v1",
+    });
+    writeFileSync(path.join(rootDir, "package.json"), source);
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      TSX_TSCONFIG_PATH: path.resolve("tsconfig.json"),
+    };
+    delete env.OPENCLAW_PREPACK_PREPARED;
+    Object.assign(
+      env,
+      mode === "prepared"
+        ? { OPENCLAW_PREPACK_PREPARED: "1" }
+        : {
+            npm_command: "pack",
+            OCM_INTERNAL_NPM_BIN: path.join(rootDir, "ocm-npm-workspace-deps.mts"),
+            OPENCLAW_OCM_WORKSPACE_DEPENDENCY_DIRS: aiDir,
+          },
+    );
+    const result = spawnSync(
+      testNodeExecPath,
+      resolveRuntimeWorkerArgv(
+        resolveRuntimeWorkerUrl(toolingTsEntrypoints.prepack),
+        testNodeExecPath,
+      ),
+      { cwd: rootDir, env, encoding: "utf8", timeout: 30000, maxBuffer: 1024 * 1024 },
+    );
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain("direct prepack cannot materialize and restore");
+    expect(result.stderr).toContain("package-openclaw-for-docker.mjs");
+    expect(result.stderr).not.toContain("plain root packing cannot safely resolve");
+    expect(readFileSync(path.join(rootDir, "package.json"), "utf8")).toBe(source);
+    expect(readdirSync(rootDir).toSorted()).toEqual(["ai", "package.json"]);
+  });
+});
 const testNodeExecPath = resolveTestNodeExecPath();
 const rootPackageManager = (
   JSON.parse(readFileSync("package.json", "utf8")) as {

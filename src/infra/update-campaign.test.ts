@@ -38,6 +38,8 @@ function createInspectors(
     getQueuedTurns: () => 0,
     getTerminalPersistence: () => 0,
     getTerminalSessions: () => 0,
+    getActualToolExecutions: () => 0,
+    getTimerRequests: () => 0,
     ...overrides,
   };
 }

@@ -19,7 +19,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
-import type { GatewayActiveWorkInspectors } from "./gateway-active-work.js";
+import { idleActiveWorkInspectors } from "./gateway-active-work.test-support.js";
 import { writeUpdateInstallReceiptRowSync } from "./restart-sentinel-store.js";
 import { readRestartSentinel, writeRestartSentinel } from "./restart-sentinel.js";
 import { UpdateCampaignController } from "./update-campaign.js";
@@ -327,26 +327,6 @@ describe("update-startup", () => {
     return vi.fn().mockResolvedValue({
       status: "handoff",
     });
-  }
-
-  function idleActiveWorkInspectors(): GatewayActiveWorkInspectors {
-    return {
-      getQueueSize: () => 0,
-      getPendingReplies: () => 0,
-      getEmbeddedRuns: () => 0,
-      getBackgroundExecSessions: () => 0,
-      getCronRuns: () => 0,
-      getAgentRuns: () => 0,
-      getAcpRuns: () => 0,
-      getMediaRuns: () => 0,
-      getRootRequests: () => 0,
-      getSessionAdmissions: () => 0,
-      getSessionMutations: () => 0,
-      getChatRuns: () => 0,
-      getQueuedTurns: () => 0,
-      getTerminalPersistence: () => 0,
-      getTerminalSessions: () => 0,
-    };
   }
 
   function createBetaAutoUpdateConfig() {

@@ -19,6 +19,10 @@ import {
   runNodeStepsWithConcurrency,
 } from "../../scripts/check-extension-package-tsc-boundary.mts";
 import {
+  BOUNDARY_DIAGNOSTIC_PREFIX,
+  isBoundaryDiagnostic,
+} from "../../scripts/lib/boundary-phase-diagnostics.mts";
+import {
   fixtureReceiptClientSource,
   openFixtureReceiptChannel,
   type FixtureReceiptChannel,
@@ -442,6 +446,64 @@ describe("check-extension-package-tsc-boundary", () => {
       stderr: "",
       stdout: "",
     });
+  });
+
+  it("reports joined preparation lifecycle without changing success or nonzero failure", async () => {
+    const owner = pathToFileURL(path.resolve("scripts/check-extension-package-tsc-boundary.mts"));
+    const result = await runNodeStepAsync(
+      "lifecycle-observer-fixture",
+      [
+        "--import",
+        pathToFileURL(path.resolve("scripts/tsx.mjs")).href,
+        "--input-type=module",
+        "--eval",
+        `import { runNodeStepAsync } from ${JSON.stringify(owner.href)};
+         const results = [];
+         for (const code of [0, 2]) {
+           try {
+             const result = await runNodeStepAsync('synthetic-preparation',
+               ['--eval', "console.log('synthetic-output'); process.exitCode = " + code], 5000,
+               { env: { ...process.env, OPENCLAW_EXTENSION_BOUNDARY_DIAGNOSTICS: '1' }, observePreparationLifecycle: true });
+             results.push({ success: true, stdout: result.stdout });
+           } catch (error) { results.push({ success: false, kind: error.kind }); }
+         }
+         console.log(JSON.stringify(results));`,
+      ],
+      20_000,
+    );
+    expect(JSON.parse(result.stdout)).toEqual([
+      { success: true, stdout: "synthetic-output\n" },
+      { success: false, kind: "nonzero-exit" },
+    ]);
+    const records = result.stderr
+      .trim()
+      .split("\n")
+      .map((line) => {
+        expect(line.startsWith(BOUNDARY_DIAGNOSTIC_PREFIX)).toBe(true);
+        const value: unknown = JSON.parse(line.slice(BOUNDARY_DIAGNOSTIC_PREFIX.length));
+        if (!isBoundaryDiagnostic(value)) {
+          throw new Error("Invalid lifecycle diagnostic");
+        }
+        return value;
+      });
+    for (const phase of [
+      "child-ready",
+      "child-exit",
+      "child-close",
+      "stdout-close",
+      "stderr-close",
+    ]) {
+      expect(records.filter((value) => value.phase === phase)).toHaveLength(2);
+    }
+    expect(
+      records.filter((value) => value.phase === "managed-settlement").map((value) => value.event),
+    ).toEqual(["start", "end", "start", "end"]);
+    expect(
+      records.filter((value) => value.phase === "child-exit").map((value) => value.counts),
+    ).toEqual([
+      { exitCode: 0, signaled: 0 },
+      { exitCode: 2, signaled: 0 },
+    ]);
   });
 
   it("keeps async node step failure output bounded", async () => {

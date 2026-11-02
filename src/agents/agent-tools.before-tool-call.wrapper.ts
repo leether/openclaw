@@ -88,6 +88,8 @@ import {
   appendToolLoopWarning,
   attachInternalToolExecutionPreparer,
 } from "./runtime/internal-hooks.js";
+import { captureTimerToolExecution } from "./timer-execution-budget.js";
+import { trackExecutionActivity } from "./tool-execution-activity.js";
 import { buildToolMutationState } from "./tool-mutation.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 import {
@@ -276,6 +278,7 @@ export function wrapToolWithBeforeToolCallHook(
   const toolName = tool.name || "tool";
   const toolOwnerPluginId = getPluginToolMeta(tool)?.pluginId;
   const admitExecution = captureAgentToolExecutionBudget();
+  const timerExecution = captureTimerToolExecution();
   const diagnosticIdentity = resolveToolDiagnosticIdentity(tool);
   const hookOptions: BeforeToolCallDiagnosticOptions = {
     ...options,
@@ -512,8 +515,20 @@ export function wrapToolWithBeforeToolCallHook(
       try {
         let result: Awaited<ReturnType<ForwardedToolExecution>>;
         try {
-          const args = [toolCallId, executeParams, signal, onUpdate, ...executionArgs];
-          const invoke = () => liveness.run(() => (execute as ForwardedToolExecution)(...args));
+          const invoke = () =>
+            timerExecution.execute(toolName, signal, (toolSignal) =>
+              trackExecutionActivity("tools", () =>
+                liveness.run(() =>
+                  (execute as ForwardedToolExecution)(
+                    toolCallId,
+                    executeParams,
+                    toolSignal,
+                    onUpdate,
+                    ...executionArgs,
+                  ),
+                ),
+              ),
+            );
           result = outcome.ownerDecision
             ? await invoke()
             : await runWithGenericToolActionDecision(tool, toolCallId, invoke);

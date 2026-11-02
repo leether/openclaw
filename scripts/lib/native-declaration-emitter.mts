@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { API, EmitOnly, type EmitOutputFile } from "typescript/unstable/async";
+import { createBoundaryDiagnostics } from "./boundary-phase-diagnostics.mts";
 import { CompilerInputSnapshot } from "./compiler-input-snapshot.mts";
 import { createDeclarationInputBoundary, resolveRepoToolBinPath } from "./local-check-runtime.mts";
 import { createDeclarationFileSystem } from "./native-declaration-filesystem.mts";
@@ -41,6 +42,8 @@ export async function compileNativeProject({
   producedFiles,
   emit = true,
 }: NativeCompilationOptions) {
+  const diagnostic = createBoundaryDiagnostics("native", configFile);
+  diagnostic.mark("resources", "info");
   // Build/lint callers require a checkout boundary. SDK revision rendering
   // intentionally uses its installed compiler and linked dependency snapshots.
   const boundary = assertInput ? createDeclarationInputBoundary(cwd) : undefined;
@@ -80,8 +83,10 @@ export async function compileNativeProject({
         generatorInputs: [],
         assertInput: assertInput ? admit : undefined,
       });
+    const beforeDone = diagnostic.start("input-snapshot");
     const before = snapshot();
     before.signature(admittedConfig, args, [], stage);
+    beforeDone();
     const preparationStartedAt = Date.now();
     // Keep the private config beside its source so relative overrides, inherited
     // paths and ${configDir} retain the compiler's own interpretation.
@@ -107,8 +112,10 @@ export async function compileNativeProject({
         throw new Error(`Invalid declaration package manifest: ${manifestFile}`);
       }
     }
+    const configuredDone = diagnostic.start("native-config");
     api = new API({ cwd: root, tsserverPath: binary, fs: view.filesystem });
     const configured = await api.parseConfigFile(config);
+    configuredDone({ roots: configured.fileNames.length });
     view.assertValid();
     const typeRoots = configured.options.typeRoots?.map(admit);
     const canonicalRoots = [
@@ -150,26 +157,32 @@ export async function compileNativeProject({
         },
       }),
     );
+    const snapshotDone = diagnostic.start("native-snapshot");
     const nativeSnapshot = await api.createSnapshot({
       openProjects: [config],
       fileNotifications: { changed: [config] },
       ensurePrograms: true,
     });
+    snapshotDone();
     view.assertValid();
     const project = nativeSnapshot.getConfiguredProject(config);
     if (!project) {
       throw new Error(`Native TypeScript did not open ${config}`);
     }
+    const diagnosticsDone = diagnostic.start("native-diagnostics");
     const errors = await collectNativeTypeScriptDiagnosticsAsync(project, {
       includeSemantic: diagnostics === "all",
     });
+    diagnosticsDone({ outputs: errors.length });
     view.assertValid();
     if (errors.length) {
       throw new Error(formatNativeTypeScriptDiagnostics(errors));
     }
     const outputFiles = new Map<string, EmitOutputFile>();
     if (emit) {
+      const emitDone = diagnostic.start("native-emit");
       const result = await project.program.emitToString(EmitOnly.OnlyDts);
+      emitDone({ outputs: result.outputFiles.size });
       view.assertValid();
       if (result.emitSkipped || result.diagnostics.length) {
         throw new Error(
@@ -195,6 +208,7 @@ export async function compileNativeProject({
         outputFiles.set(accepted, contents);
       }
     }
+    const inputsDone = diagnostic.start("native-inputs");
     for (const file of await project.program.getSourceFileNames()) {
       const accepted = admit(file);
       if (assertInput && !view.inputs.has(accepted)) {
@@ -205,22 +219,33 @@ export async function compileNativeProject({
       view.inputs.add(accepted);
     }
     view.assertValid();
+    inputsDone({ inputs: view.inputs.size });
+    // This marker only observes API.close returning. The command owner retains
+    // its independent requireProcessTreeExit check before artifact publication.
+    const closed = diagnostic.start("native-close");
     await api.close();
+    closed();
     api = undefined;
     const consumedInputs = view.inputs;
     const inputs = [...consumedInputs].toSorted();
     if (canonicalRoots.some((file) => !consumedInputs.has(file))) {
       throw new Error("Incomplete native compiler source membership");
     }
+    const sealDone = diagnostic.start("native-seal");
     const after = snapshot();
     after.seal(admittedConfig, args, inputs, before, preparationStartedAt, stage, producedFiles);
+    sealDone({ inputs: inputs.length, outputs: outputFiles.size });
     return { inputs, outputFiles, lookups: view.getLookups() };
   } catch (error) {
     view?.assertValid();
     throw error;
   } finally {
     try {
-      await api?.close();
+      if (api) {
+        const closed = diagnostic.start("native-close");
+        await api.close();
+        closed();
+      }
     } finally {
       fs.rmSync(stage, { recursive: true, force: true });
     }

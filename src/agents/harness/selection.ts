@@ -34,6 +34,7 @@ import {
   unwrapModelHeaderSentinelsForProviderEgress,
   unwrapSecretSentinelsForProviderEgress,
 } from "../provider-secret-egress.js";
+import { assertTimerBudgetRuntimeSupported } from "../timer-execution-budget.js";
 import { isRuntimeToolAllowed, isToolAllowedByPolicies } from "../tool-policy-match.js";
 import { normalizeToolPolicyName } from "../tool-policy.js";
 import type { SystemAgentToolOptions } from "../tools/system-agent-tool.js";
@@ -115,6 +116,7 @@ function selectAgentHarnessDecision(
   params: AgentHarnessSelectionDecisionParams,
 ): AgentHarnessSelectionDecision {
   const selection = resolveAgentHarnessSelectionDecision(params);
+  assertTimerBudgetRuntimeSupported(selection.selectedHarnessId);
   return {
     ...selection,
     harness: selection.builtIn ? createOpenClawAgentHarness() : selection.harness,
@@ -212,6 +214,7 @@ export async function runAgentHarnessAttempt(
         }
       : selectPreparedAgentHarness(params);
   const harness = selection.harness;
+  assertTimerBudgetRuntimeSupported(harness.id);
   const nativeOwnsModel = nativeSessionRuntime?.auth === "native";
   const nativeModelPolicySupported = harness.nativeModelPolicySupport === "exact";
   assertHarnessModelPolicySupport(harness, params);

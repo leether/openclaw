@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index b73ab3b7ea571450d1fa831fc937c3c495d3853c..eaffacf17f8176250d6082b4e7fa0a820ac76cd8 100644
+--- a/package.json
++++ b/package.json
+@@ -37,7 +37,7 @@
+     "test": "npx jest"
+   },
+   "dependencies": {
+-    "@azure/msal-node": "^5.6.0",
++    "@azure/msal-node": "7.1.0",
+     "@microsoft/teams.api": "2.1.0",
+     "@microsoft/teams.common": "2.1.0",
+     "@microsoft/teams.graph": "2.1.0",

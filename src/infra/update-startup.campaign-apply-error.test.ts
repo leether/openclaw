@@ -87,6 +87,8 @@ vi.mock("../model-catalog/remote-refresh.js", async () => ({
 
 function idleActiveWorkInspectors(): GatewayActiveWorkInspectors {
   return {
+    getActualToolExecutions: () => 0,
+    getTimerRequests: () => 0,
     getQueueSize: () => 0,
     getPendingReplies: () => 0,
     getEmbeddedRuns: () => 0,

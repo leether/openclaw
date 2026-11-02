@@ -9,6 +9,11 @@ import {
   type OpenClawTestInstance,
 } from "../../../helpers/openclaw-test-instance.js";
 import { waitFor } from "./cloud-worker-midturn-loss-fixture.js";
+import {
+  reportSkillLibraryNodeAdmissionFailure,
+  type SkillLibraryNodeAdmissionFailure,
+  type SkillLibraryNodeAdmissionStage,
+} from "./skill-library-node-admission-diagnostics.js";
 import type { SkillLibraryWireClient } from "./skill-library-wire-fixture.js";
 
 type ListedNode = {
@@ -67,12 +72,16 @@ export async function prepareSkillLibraryNodeProcess(
     const entrypoint = await node.entrypoint();
     const nodeId = loadOrCreateDeviceIdentity({ env: node.env }).deviceId;
     let started = false;
-    const start = async (admin: SkillLibraryWireClient): Promise<void> => {
+    const start = async (
+      admin: SkillLibraryWireClient,
+      options?: { onAdmissionFailure?: (failure: SkillLibraryNodeAdmissionFailure) => void },
+    ): Promise<void> => {
       abort.signal.throwIfAborted();
       if (started) {
         throw new Error("Proof node has already started");
       }
       started = true;
+      let stage: SkillLibraryNodeAdmissionStage = "device-admission";
       try {
         completion = runManagedCommand({
           bin: process.execPath,
@@ -123,6 +132,7 @@ export async function prepareSkillLibraryNodeProcess(
           const listed = nodes.find((entry) => entry.nodeId === nodeId);
           return listed ? { nodeId: listed.nodeId } : undefined;
         });
+        stage = "command-approval";
         const approval = await waitFor("proof node command approval", async () => {
           const listed = (await readNodes()).find((entry) => entry.nodeId === admission.nodeId);
           if (listed?.approvalState === "approved") {
@@ -137,6 +147,7 @@ export async function prepareSkillLibraryNodeProcess(
         if (!approval.approved) {
           await admin.request("node.pair.approve", { requestId: approval.requestId });
         }
+        stage = "worker-inventory";
         await waitFor("proof node worker inventory", async () => {
           const listed = (await readNodes()).find((entry) => entry.nodeId === admission.nodeId);
           return listed?.approvalState === "approved" &&
@@ -150,6 +161,7 @@ export async function prepareSkillLibraryNodeProcess(
           throw new Error("Proof node admission changed its prepared device identity");
         }
       } catch (error) {
+        reportSkillLibraryNodeAdmissionFailure(error, stage, options?.onAdmissionFailure);
         try {
           await stop();
         } catch (cleanupError) {

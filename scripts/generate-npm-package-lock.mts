@@ -25,6 +25,12 @@ import { list as listTar } from "tar";
 import { parse as parseYaml } from "yaml";
 import { isRecord } from "../packages/normalization-core/src/record-coerce.ts";
 import { listChangedPathsFromGit, listStagedChangedPaths } from "./changed-lanes.mts";
+import {
+  NPM_BUNDLE_INTEGRITY,
+  verifyBundledNpmArtifact,
+  type BundledNpmInputs,
+} from "./lib/package-bundled-npm.mts";
+import { ensureNpmRuntimeArtifact, prepareNpmRuntimeArtifact } from "./lib/package-npm-runtime.mts";
 import { pnpmLockfileDocuments, resolveSnapshot } from "./lib/pnpm-lockfile-documents.mjs";
 import { resolveNpmRunner } from "./npm-runner.mts";
 
@@ -1668,7 +1674,11 @@ export function generateNpmPackageLock(packageDir: string, options: NpmLockOptio
     const packageJson = parseJsonObject(
       readFileSync(path.join(packageDir, "package.json"), "utf8"),
     );
-    const localPackageArtifacts = options.localPackageArtifacts ?? [];
+    const derivedNpm = prepareNpmRuntimeArtifact(packageDir, env);
+    const localPackageArtifacts = [
+      ...(options.localPackageArtifacts ?? []),
+      ...(derivedNpm ? [derivedNpm.artifact] : []),
+    ];
     validateLocalPackageArtifacts(packageDir, localPackageArtifacts);
     const installOverrides = readNpmLockOverrides(packageJson, packageDir, localPackageArtifacts);
     const normalizedPackageJson = packageJsonForNpmLock(
@@ -1701,9 +1711,13 @@ export function generateNpmPackageLock(packageDir: string, options: NpmLockOptio
         parseJsonObject(readFileSync(path.join(tempDir, "package-lock.json"), "utf8")),
       ),
     );
-    let npmBundleTarball: Buffer | undefined;
+    let npmBundleTarball: Buffer | undefined = derivedNpm?.tarball;
     const npmVersion = recordAt(recordAt(generated, "packages"), "node_modules/npm")?.version;
-    if (typeof npmVersion === "string" && NPM_BUNDLED_DEPENDENCY_POLICIES.has(npmVersion)) {
+    if (
+      !derivedNpm &&
+      typeof npmVersion === "string" &&
+      NPM_BUNDLED_DEPENDENCY_POLICIES.has(npmVersion)
+    ) {
       runNpm(
         ["pack", `npm@${npmVersion}`, "--ignore-scripts", "--pack-destination", tempDir],
         tempDir,
@@ -1711,7 +1725,7 @@ export function generateNpmPackageLock(packageDir: string, options: NpmLockOptio
       );
       npmBundleTarball = readFileSync(path.join(tempDir, `npm-${npmVersion}.tgz`));
     }
-    assertNpmLockMatchesPnpmLock(generated, localPackageArtifacts, npmBundleTarball);
+    assertNpmLockMatchesPnpmLock(generated, localPackageArtifacts, npmBundleTarball, derivedNpm);
     return `${JSON.stringify(generated, null, 2)}\n`;
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
@@ -1724,6 +1738,7 @@ function verifiedNpmBundlePackages(
   packages: UnknownRecord,
   tarball: Buffer | undefined,
   pnpmIntegrities: Map<string, Set<string>>,
+  derivedInputs?: BundledNpmInputs,
 ) {
   const manifests = new Map<string, { name: string; version: string }>();
   if (!tarball) {
@@ -1733,12 +1748,22 @@ function verifiedNpmBundlePackages(
   const npmVersion = typeof npm?.version === "string" ? npm.version : undefined;
   const policy = npmVersion ? NPM_BUNDLED_DEPENDENCY_POLICIES.get(npmVersion) : undefined;
   const integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`;
+  let verifiedIntegrity = integrity;
+  if (derivedInputs) {
+    if (!pnpmIntegrities.get("npm@12.2.1")?.has(NPM_BUNDLE_INTEGRITY)) {
+      throw new Error(
+        "npm derivative requires the exact official npm@12.2.1 pnpm source integrity",
+      );
+    }
+    verifyBundledNpmArtifact({ derivedTarball: tarball, ...derivedInputs });
+    verifiedIntegrity = NPM_BUNDLE_INTEGRITY;
+  }
   if (
     !policy ||
     !npm ||
     (npm.name !== undefined && npm.name !== "npm") ||
     npm.integrity !== integrity ||
-    !pnpmIntegrities.get(`npm@${npmVersion}`)?.has(integrity)
+    !pnpmIntegrities.get(`npm@${npmVersion}`)?.has(verifiedIntegrity)
   ) {
     throw new Error(
       `npm bundled dependency tarball does not match the pnpm-locked npm@${npmVersion ?? "unknown"} integrity`,
@@ -1794,6 +1819,7 @@ function collectPnpmLockViolations(
   pnpmLockIntegrities = readPnpmLockPackageIntegrities(),
   localPackageArtifacts: NpmLocalPackageArtifact[] = [],
   npmBundleTarball?: Buffer,
+  derivedInputs?: BundledNpmInputs,
 ) {
   const packages = recordAt(npmLock, "packages");
   if (!packages) {
@@ -1803,6 +1829,7 @@ function collectPnpmLockViolations(
     packages,
     npmBundleTarball,
     pnpmLockIntegrities,
+    derivedInputs,
   );
   const violations: Array<{
     actualIntegrity?: string;
@@ -1964,6 +1991,7 @@ function assertNpmLockMatchesPnpmLock(
   npmLock: unknown,
   localPackageArtifacts: NpmLocalPackageArtifact[] = [],
   npmBundleTarball?: Buffer,
+  derivedInputs?: BundledNpmInputs,
 ) {
   const packages = recordAt(npmLock, "packages");
   for (const artifact of localPackageArtifacts) {
@@ -1986,6 +2014,7 @@ function assertNpmLockMatchesPnpmLock(
     undefined,
     localPackageArtifacts,
     npmBundleTarball,
+    derivedInputs,
   );
   const platformViolations = collectPnpmLockPlatformViolations(npmLock);
   if (violations.length === 0 && platformViolations.length === 0) {
@@ -2226,6 +2255,9 @@ export async function generateNpmPackageLocks({
     packageDirs,
     async (packageDir) => {
       try {
+        // Download ownership stays in the parent process so cancellation can
+        // join the subprocess tree before a worker reads the immutable cache.
+        await ensureNpmRuntimeArtifact(packageDir);
         const output =
           jobs === 1 && rootDir === ROOT_DIR
             ? generateNpmPackageLock(packageDir)

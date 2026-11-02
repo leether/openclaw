@@ -39,6 +39,8 @@ const zeroActiveCounts = {
   terminalPersistence: 0,
   terminalSessions: 0,
   lifecycleWrites: 0,
+  actualToolExecutions: 0,
+  timerRequests: 0,
   totalActive: 0,
 } satisfies GatewayActiveWorkSnapshot["counts"];
 

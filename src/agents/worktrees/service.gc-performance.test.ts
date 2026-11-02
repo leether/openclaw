@@ -66,7 +66,21 @@ it("bounds cold cleanup inventories and retains dispositions across registry reo
   registry.updateRegistryWorktree(env, records[8]!.id, {
     repositoryIdentity: { repoRoot: missingRepository, repoFingerprint: "missing" },
   });
-  const text = vi.spyOn(gitExec, "executeGitCommand");
+  const executeGitCommand = gitExec.executeGitCommand;
+  const text = vi
+    .spyOn(gitExec, "executeGitCommand")
+    .mockImplementation(async (cwd, args, options) => {
+      const result = await executeGitCommand(cwd, args, options);
+      if (cwd === missingRepository && args[0] === "worktree" && args[1] === "list") {
+        // Exercise Git 2.56's broken-gitfile diagnostic even with an older local Git.
+        expect(result).toMatchObject({ code: 128, termination: "exit" });
+        return {
+          ...result,
+          stderr: `fatal: gitfile does not point to a valid repository: ${path.join(cwd, ".git")}\n`,
+        };
+      }
+      return result;
+    });
   const bytes = vi.spyOn(gitExec, "executeGitCommandBytes");
   const buffered = vi.spyOn(gitExec, "executeGitCommandBuffered");
   const measurements = [];

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createBoundaryDiagnostics } from "./lib/boundary-phase-diagnostics.mts";
 import { portableRelativePath } from "./lib/build-artifact-cache.mts";
 import { createDeclarationInputBoundary } from "./lib/local-check-runtime.mts";
 import { compileNativeProject } from "./lib/native-declaration-emitter.mts";
@@ -19,6 +20,8 @@ if (
 ) {
   throw new Error("Invalid extension boundary compiler request");
 }
+const diagnostic = createBoundaryDiagnostics("worker", request.configFile);
+diagnostic.mark("resources", "info");
 const boundary = createDeclarationInputBoundary(process.cwd());
 let compilerOptions: Record<string, unknown> | undefined;
 if ("compilerOptions" in request) {
@@ -62,6 +65,7 @@ const result = await compileNativeProject({
   assertInput: (file) => boundary.assert(file),
   emit: request.emit,
 });
+const published = diagnostic.start("worker-publication");
 const outputs = [...result.outputFiles].map(([file, output]) => {
   const target = boundary.assert(file);
   if (
@@ -89,3 +93,5 @@ fs.writeFileSync(inputReceipt, `${JSON.stringify({ inputs, lookups: result.looku
 for (const file of [...outputs.map(({ target }) => target), inputReceipt]) {
   process.stdout.write(`TSFILE: ${file}\n`);
 }
+
+published({ inputs: inputs.length, outputs: outputs.length });

@@ -23,6 +23,7 @@ import {
   LEGACY_PACKAGE_INSTALL_GUARD_RELATIVE_PATH,
   PACKAGE_LIFECYCLE_PENDING_RELATIVE_PATH,
 } from "./lib/package-lifecycle-marker.mjs";
+import { prepareBundledNpmRuntime } from "./lib/package-npm-runtime.mts";
 import {
   cleanPackedOpenClawTarballs,
   validatePackedTarballOutputName,
@@ -95,6 +96,7 @@ type PackageOptions = RunOptions & {
   packJsonPath?: string;
   pnpmPack?: boolean;
   prepareBundledAiRuntime?: typeof prepareBundledAiRuntimePackage;
+  prepareBundledNpmRuntime?: typeof prepareBundledNpmRuntime;
   prepareChangelog?: (cwd: string) => Promise<unknown>;
   prepareDocsMap?: (cwd: string) => Promise<unknown>;
   prepareManifest?: (cwd: string) => Promise<unknown>;
@@ -968,6 +970,7 @@ export async function packOpenClawPackageForDocker(
   let packReceiptDir: string | undefined;
   try {
     let cleanupBundledAiRuntime = async () => {};
+    let cleanupBundledNpmRuntime = async () => {};
     let cleanupBundledPlugins = async () => {};
     const cleanupFailures = new Set<unknown>();
     const onCleanupFailure = (error: unknown) => void cleanupFailures.add(error);
@@ -981,6 +984,9 @@ export async function packOpenClawPackageForDocker(
           onCleanupFailure,
         );
       }
+      cleanupBundledNpmRuntime = (
+        packageOptions.prepareBundledNpmRuntime ?? prepareBundledNpmRuntime
+      )(sourcePath, onCleanupFailure);
       cleanupBundledAiRuntime = await prepareBundledAiRuntime(
         sourcePath,
         outputPath,
@@ -1015,7 +1021,11 @@ export async function packOpenClawPackageForDocker(
     } finally {
       // Restore shared manifests in reverse preparation order. A helper can
       // fail restoring during preparation, before its cleanup handle returns.
-      for (const cleanup of [cleanupBundledAiRuntime, cleanupBundledPlugins]) {
+      for (const cleanup of [
+        cleanupBundledAiRuntime,
+        cleanupBundledNpmRuntime,
+        cleanupBundledPlugins,
+      ]) {
         try {
           await cleanup();
         } catch (error) {
