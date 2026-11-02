@@ -10,6 +10,8 @@ minimumReleaseAgeStrict: true
 
 # Trusted Codex runtimes are outside the dependency cooldown.
 minimumReleaseAgeExclude:
+  # GHSA-4528-x5fx-h6hg; remove after 2026-11-04T09:59:49.641Z.
+  - "joi@18.3.1"
   # GHSA-27r3-jxmh-p828; remove after 2026-10-29T11:39:38.614Z.
   - "body-parser@2.4.0"
   # Security fix for GHSA-68fv-2mgg-jv7q (released 2026-09-30); remove after 2026-10-07T14:08:09.382Z.
@@ -61,7 +63,7 @@ overrides:
   axios: 1.20.0
   body-parser: 2.4.0
   fast-uri: 4.2.1
-  follow-redirects: 1.16.1
+  follow-redirects: 1.16.2
   # Vite security patch: keep its new bundler path at the minimum compatible patch.
   "vite@8.3.3>rolldown": 1.2.11
   defu: 6.1.7
@@ -77,7 +79,9 @@ overrides:
   "werift-ice@0.2.2>ip": "npm:neoip@3.1.0"
   ip-address: 10.7.2
   "mailauth@5.0.3>nodemailer": 10.0.10
-  "mailauth@5.0.3>joi": 18.2.9
+  "mailauth@5.0.3>joi": 18.3.1
+  # GHSA-gg6h-894w-4m9c: Crabline pins the affected lookbehind implementation.
+  "@openclaw/crabline@0.1.28>re2js": 2.8.7
   # Mailauth pins vulnerable Undici; remove when its direct dependency is fixed.
   "mailauth@5.0.3>undici": 8.12.2
   # Bind the two Teams authentication consumers to the reviewed security fix.
