@@ -75,6 +75,12 @@ for (const version of ["24.22.1", "24.22.0"]) {
       assert.ok(proof.assertions.includes(assertion), `${prefix} ${version}: ${assertion}`);
     }
     assert.equal(proof.finalDrain.idle, true);
+    assert.equal(typeof proof.ownerEpoch, "string");
+    assert.ok(proof.ownerEpoch.length > 0);
+    assert.equal(typeof proof.drainOwnerEpoch, "string");
+    assert.ok(proof.drainOwnerEpoch.length > 0);
+    assert.notEqual(proof.ownerEpoch, proof.drainOwnerEpoch);
+    assert.equal(proof.finalDrain.ownerEpoch, proof.drainOwnerEpoch);
     assert.equal(proof.toolCalls, 1);
     assert.equal(proof.sourceToolCallId, fixtureSourceCallId);
     assert.ok(proof.cancellationProof.elapsedMs < 5000);

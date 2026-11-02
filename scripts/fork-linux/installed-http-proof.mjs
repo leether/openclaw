@@ -292,6 +292,7 @@ const env = {
   TMPDIR: "/tmp",
   PATH: path.dirname(runtime) + ":/usr/bin:/bin",
 };
+let statusOwnerEpochs;
 async function status(signal) {
   const value = JSON.parse(
     await command(
@@ -311,7 +312,21 @@ async function status(signal) {
   );
   assert.equal(value.timerBudget?.protocol, "timer-budget-v1");
   assert.equal(value.executionDrain?.protocol, "tool-drain-v1");
-  assert.equal(value.executionDrain.ownerEpoch, value.timerBudget.ownerEpoch);
+  const owners = {
+    budget: value.timerBudget.ownerEpoch,
+    drain: value.executionDrain.ownerEpoch,
+  };
+  for (const epoch of Object.values(owners)) {
+    assert.equal(typeof epoch, "string");
+    assert.ok(epoch.length > 0);
+  }
+  assert.notEqual(owners.budget, owners.drain);
+  statusOwnerEpochs ??= owners;
+  assert.deepEqual(
+    owners,
+    statusOwnerEpochs,
+    "budget and drain identities remain independently stable",
+  );
   assert.ok(Number.isFinite(Date.parse(value.executionDrain.sampledAt)));
   const names = [
     "actualToolExecutions",
@@ -396,6 +411,7 @@ try {
   report.metadataCli = await qualifyMetadataCli({ own, metadataHolds });
   const before = await status();
   report.ownerEpoch = before.timerBudget.ownerEpoch;
+  report.drainOwnerEpoch = before.executionDrain.ownerEpoch;
   const budget = (remainingMs) => ({
     version: "timer-budget-v1",
     remainingMs,
