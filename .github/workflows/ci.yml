@@ -1718,6 +1718,10 @@ jobs:
           cache-mode: restore
           install-bun: "false"
 
+      - name: Setup ripgrep for main push ratchets
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.OPENCLAW_CI_ON_PUSH != 'true'
+        uses: ./.ci-harness/.github/actions/setup-ripgrep
+
       - name: Check main push ratchets and protocol additions
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.OPENCLAW_CI_ON_PUSH != 'true'
         env:
